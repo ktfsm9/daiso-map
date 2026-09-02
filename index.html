@@ -911,9 +911,17 @@ function renderPlan(){
   $('#plan-sub').textContent = TYPES.filter(t=>n[t]).map(t=>t+' '+n[t]).join(' · ') || '아직 배치된 것이 없습니다';
   $('#toolbar').style.display = edit?'':'none';
   syncNumbar();
-  $('#plan-hint').textContent = edit
-    ? (tool==='선택' ? '끌어 옮기고 · 톡 누르면 수정' : '빈 곳을 누르면 '+tool+' 놓임')
-    : '';
+  if(!edit) $('#plan-hint').textContent = '';
+  else if(tool==='선택') $('#plan-hint').textContent = '끌어 옮기고 · 톡 누르면 수정';
+  else if(tool==='계단') $('#plan-hint').textContent = '층 이동 기준점입니다';
+  else {
+    const m = missingNos(f, tool);
+    $('#plan-hint').innerHTML = m.length
+      ? '주문에 나오는 <b style="color:var(--accent)">'+esc(tool)+'</b> 중 아직 안 놓은 번호<br>'
+        + '<span style="font-variant-numeric:tabular-nums">' + m.slice(0,10).join(' ')
+        + (m.length>10 ? ' 외 '+(m.length-10)+'개' : '') + '</span>'
+      : '주문에 나오는 '+esc(tool)+'는 다 놓았습니다';
+  }
   $('#plan-mode').textContent = edit?'완료':'편집';
   $('#plan-mode').className = 'btn '+(edit?'pri':'gh')+' sm';
   paint();
@@ -943,7 +951,7 @@ $('#plan-mode').onclick = ()=>{ edit=!edit; selId=null; tool='선택'; preview=n
 function syncTools(){ $$('.tool').forEach(b=>b.classList.toggle('on',b.dataset.t===tool)); }
 $$('.tool').forEach(b=> b.onclick = ()=>{
   tool=b.dataset.t; selId=null; preview=null;
-  if(tool!=='선택') pendNo = nextNo(S.ui.floor, tool);
+  if(tool!=='선택') pendNo = suggestNo(S.ui.floor, tool);
   syncTools(); renderPlan();
 });
 $('#z-in').onclick=()=>zoom(0.8); $('#z-out').onclick=()=>zoom(1.25); $('#z-fit').onclick=()=>{fit();paint();};
@@ -1016,6 +1024,21 @@ function nextNo(f,t){
   const ns=S.units.filter(u=>u.f===f&&u.t===t).map(u=>parseInt(u.no,10)).filter(n=>!isNaN(n));
   return pad3(ns.length?Math.max.apply(null,ns)+1:1);
 }
+/* 상품 카탈로그에 실제로 쓰이는 매대번호 */
+function catNos(f,t){
+  const s=new Set();
+  for(const k in S.cat){ const c=S.cat[k]; if(c.f===f && c.ut===t && c.uno) s.add(c.uno); }
+  return [...s].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+}
+/* 그중 아직 평면도에 안 놓은 번호 */
+function missingNos(f,t){
+  return catNos(f,t).filter(n=>!S.units.some(u=>u.f===f&&u.t===t&&u.no===n));
+}
+/* 다음에 놓을 번호 추천: 카탈로그에 있는 미배치 번호 우선 */
+function suggestNo(f,t){
+  const m=missingNos(f,t);
+  return m.length ? m[0] : nextNo(f,t);
+}
 function placeUnit(cx,cy,w,h){
   const f=S.ui.floor, t=tool;
   w=Math.max(1,w||DEF.w[t]); h=Math.max(1,h||DEF.h[t]);
@@ -1027,7 +1050,9 @@ function placeUnit(cx,cy,w,h){
   }
   const u={id:uid(),f,t,no,x,y,w,h,tiers:DEF.tiers[t]};
   S.units.push(u);
-  pendNo = bump(no);
+  // 카탈로그에 남은 번호가 있으면 그걸, 없으면 다음 숫자
+  const m = missingNos(f,t);
+  pendNo = m.length ? m[0] : bump(no);
   save(); selId=u.id; renderPlan();
   toast(t+' '+no+' 놓음 · 톡 누르면 수정');
 }
@@ -1049,25 +1074,32 @@ function openUnitInfo(id){
 function openUnitEdit(id,isNew){
   const u=S.units.find(x=>x.id===id); if(!u) return;
   const isStair = u.t==='계단';
+  const miss = isStair ? [] : missingNos(u.f, u.t);
   sheet('<h2>'+esc(u.t)+(isStair?'':' '+esc(u.no))+'</h2><p class="sh-sub">'+esc(u.f)+'</p>'
-    + (isStair?'':'<label class="fld"><span>번호</span><input id="e-no" value="'+esc(u.no)+'" inputmode="numeric" maxlength="6"></label>')
+    + (isStair?'' :
+        '<label class="fld"><span>매대번호 — 지시상품내역의 '+esc(u.f)+'-'+esc(u.t)+'-<b style="color:var(--accent)">041</b>-04 에서 041</span>'
+        + '<input id="e-no" value="'+esc(u.no)+'" inputmode="numeric" maxlength="6" class="big-in"></label>'
+        + (miss.length
+            ? '<div class="muted" style="margin:-4px 0 12px">주문에 나오는데 아직 안 놓은 번호 — 눌러서 넣기</div>'
+              + '<div class="chips" style="margin-bottom:14px">'
+              + miss.slice(0,14).map(n=>'<button class="chip" data-no="'+esc(n)+'">'+esc(n)+'</button>').join('')
+              + '</div>'
+            : ''))
     + '<div class="row"><label class="fld"><span>가로 칸</span><div class="stepper"><button data-a="w-">&minus;</button><div class="v" id="e-w">'+u.w+'</div><button data-a="w+">+</button></div></label>'
     + '<label class="fld"><span>세로 칸</span><div class="stepper"><button data-a="h-">&minus;</button><div class="v" id="e-h">'+u.h+'</div><button data-a="h+">+</button></div></label></div>'
+    + '<button class="btn gh sm" data-a="rot" style="margin-bottom:12px">↻ 눕히기 · 세우기</button>'
     + (isStair||u.t==='계산대'?'':'<label class="fld"><span>면(단) 수 — 아래부터 1면</span><div class="stepper"><button data-a="t-">&minus;</button><div class="v" id="e-t">'+(u.tiers||1)+'</div><button data-a="t+">+</button></div></label>')
-    + '<label class="fld"><span>위치 미세조정</span></label>'
-    + '<div class="pad"><button class="sp"></button><button data-a="up">↑</button><button class="sp"></button>'
-    + '<button data-a="left">←</button><button data-a="rot">↻</button><button data-a="right">→</button>'
-    + '<button class="sp"></button><button data-a="down">↓</button><button class="sp"></button></div>'
-    + '<div style="margin-top:18px"><button class="btn pri" id="e-ok">'+(isNew?'놓기 완료':'저장')+'</button>'
+    + '<div style="margin-top:14px"><button class="btn pri" id="e-ok">'+(isNew?'놓기 완료':'저장')+'</button>'
     + '<button class="btn dg" id="e-del" style="margin-top:9px">이 유닛 삭제</button></div>');
+  $('#sheet-body').querySelectorAll('[data-no]').forEach(b=> b.onclick = ()=>{
+    $('#e-no').value = b.dataset.no;
+  });
   const upd=()=>{ $('#e-w').textContent=u.w; $('#e-h').textContent=u.h; if($('#e-t'))$('#e-t').textContent=u.tiers||1; paint(); };
   $('#sheet-body').querySelectorAll('[data-a]').forEach(b=> b.onclick=()=>{
     const a=b.dataset.a;
     if(a==='w+') u.w=Math.min(COLS-u.x,u.w+1); if(a==='w-') u.w=Math.max(1,u.w-1);
     if(a==='h+') u.h=Math.min(ROWS-u.y,u.h+1); if(a==='h-') u.h=Math.max(1,u.h-1);
     if(a==='t+') u.tiers=Math.min(20,(u.tiers||1)+1); if(a==='t-') u.tiers=Math.max(1,(u.tiers||1)-1);
-    if(a==='up') u.y=Math.max(0,u.y-1); if(a==='down') u.y=Math.min(ROWS-u.h,u.y+1);
-    if(a==='left') u.x=Math.max(0,u.x-1); if(a==='right') u.x=Math.min(COLS-u.w,u.x+1);
     if(a==='rot'){ const t=u.w; u.w=Math.min(COLS-u.x,u.h); u.h=Math.min(ROWS-u.y,t); }
     save(); upd();
   });
