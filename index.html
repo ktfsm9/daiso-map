@@ -333,7 +333,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-03-e';
+const APP_VER = '2026-09-03-f';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 const TYPES = ['곤도라','벽면','창고','계산대','계단'];
 const LOC_TYPES = ['곤도라','벽면','창고','계산대'];
@@ -979,6 +979,16 @@ function areaMapFrom(text){
   return map;
 }
 
+/* 상품명에 딸려오는 잡음을 턴다 */
+function cleanName(s){
+  s = (s||'').replace(/^[^가-힣A-Za-z(]+/,'').replace(/\s{2,}/g,' ').trim();
+  // 상품 사진 옆 글자가 한 글자 붙는 경우: "이 바세린…", "뜨- 베이킹소다…"
+  s = s.replace(/^[가-힣][\s\-–—.]+(?=[가-힣A-Za-z(]{3,})/, '');
+  // 뒤에 위치 숫자가 딸려오는 경우: "…제거제500 01"
+  s = s.replace(/[\s.]+\d{1,2}$/, '');
+  return s.trim();
+}
+
 /* 코드 줄 다음에 오는 한글 줄을 상품명으로 본다 (한글 인식을 켠 경우에만 의미 있음) */
 function namesByCode(text){
   const out = {};
@@ -995,7 +1005,7 @@ function namesByCode(text){
       // 화면의 고정 문구가 이름으로 잡히지 않게 거른다
       if(/^\[?\s*옵션/.test(s) || /위\s*치/.test(s)) continue;
       if(/[헌현]?재\s*고/.test(s) || /지시번호|주문서|작업시작|오름차순|내림차순|요청사항|보류|완료/.test(s)) continue;
-      s = s.replace(/^[^가-힣A-Za-z(]+/,'').replace(/\s{2,}/g,' ').trim();
+      s = cleanName(s);
       if(!/[가-힣]{2,}/.test(s)) continue;
       if(/^\d/.test(s)) continue;
       if(s.length>=3){ out[m[1]] = s; break; }
@@ -1067,6 +1077,18 @@ function parseShot(text, korText){
     if(!r.uno) r.sure = false;
   });
 
+  // 한글 인식이 코드를 못 읽어 이름이 비었으면, 줄 순서로 채워 넣는다.
+  // (양쪽 다 위에서 아래로 읽으므로 개수가 맞을 때만 안전하게 적용)
+  if(korText){
+    const blank = rows.filter(r=>!r.known && !r.name);
+    if(blank.length){
+      const cand = korText.split('\n').map(cleanName).filter(s=>
+        s.length>=3 && /[가-힣]{2,}/.test(s) && !/^\d/.test(s)
+        && !/[헌현]?재\s*고|위\s*치|옵\s*션|지시번호|주문서|작업시작|오름차순|내림차순|요청사항|^보류$|^완료$/.test(s));
+      if(cand.length === rows.length) rows.forEach((r,i)=>{ if(!r.known && !r.name) r.name = cand[i]; });
+    }
+  }
+
   // 두 장이 겹칠 때 같은 코드가 두 번 잡힌다 — 하나로 합친다
   const seen = new Map();
   const merged = [];
@@ -1120,6 +1142,10 @@ $('#shot-file').onchange = async ev=>{
     };
     const runAll = async (lang, tag)=>{
       const w = await Tesseract.createWorker(lang, 1, {logger: mkLogger(tag)});
+      // 화면을 한 덩어리로 읽게 한다(psm 6).
+      // 기본값(자동 분할)은 오른쪽 수량 칸을 딴 블록으로 떼어내
+      // 상품과 수량 짝이 어긋난다.
+      await w.setParameters({ tessedit_pageseg_mode: '6' });
       let out = '';
       for(let i=0;i<files.length;i++){
         if($('#ocr-msg')) $('#ocr-msg').textContent = tag+' · 사진 '+(i+1)+'/'+files.length;
