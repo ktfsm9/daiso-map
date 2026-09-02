@@ -211,6 +211,15 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
         <button class="tool" data-t="계산대">계산대</button>
         <button class="tool" data-t="계단">계단</button>
       </div>
+      <div class="planbar" id="numbar" style="display:none">
+        <span class="muted" style="flex:none">다음 번호</span>
+        <button class="zoom" id="n-dn">&minus;</button>
+        <input id="n-val" inputmode="numeric" maxlength="6"
+          style="width:74px;flex:none;text-align:center;font-weight:700;font-size:16px;padding:7px 4px;
+                 font-variant-numeric:tabular-nums">
+        <button class="zoom" id="n-up">+</button>
+        <span class="muted" style="flex:1;text-align:right;line-height:1.3">톡 누르면 놓기<br>끌면 크기 지정</span>
+      </div>
     </div>
     <div id="plan-legend"></div>
   </div>
@@ -618,9 +627,15 @@ function renderOrders(){
   $('#ord-sub').textContent = os.length ? (os.length+'건 · '+lines+'줄') : '주문서를 만들어 상품코드를 넣으세요';
 
   const box = $('#ord-body');
+  const nOrd = Object.keys(ORD_SEED).length;
+  const nLn = Object.values(ORD_SEED).reduce((a,x)=>a+x.length,0);
+  const loadBtn = '<button class="btn gh" id="ord-seed" style="margin-top:6px">'
+    + '올려주신 주문 '+nOrd+'건 불러오기<small style="display:block;font-size:12px;font-weight:450;opacity:.7;margin-top:2px">'
+    + '9/2 주문서 0049~0068 · '+nLn+'줄</small></button>';
   if(!os.length){
     box.innerHTML = '<div class="empty"><b>'+sessLabel(sess)+' 주문이 없습니다</b>'
-      + '우측 상단 + 주문서 를 눌러<br>주문서 번호(예: 0063)를 만드세요.</div>';
+      + '우측 상단 + 주문서 를 눌러<br>주문서 번호(예: 0063)를 만드세요.</div>' + loadBtn;
+    bindSeedBtn();
     return;
   }
   box.innerHTML = os.slice().reverse().map(o=>{
@@ -640,7 +655,8 @@ function renderOrders(){
             + '<button class="act" data-rm="'+o.id+':'+i+'">빼기</button></div>';
         }).join('') : '<p class="muted" style="margin:0">아직 담긴 상품이 없습니다.</p>')
       + '</div>';
-  }).join('');
+  }).join('') + loadBtn;
+  bindSeedBtn();
   $$('#ord-body [data-add]').forEach(b=> b.onclick = ()=> openCodeEntry(b.dataset.add));
   $$('#ord-body [data-del]').forEach(b=> b.onclick = ()=>{
     const o = S.orders.find(x=>x.id===b.dataset.del);
@@ -657,6 +673,21 @@ function renderOrders(){
     const o = S.orders.find(x=>x.id===id);
     openCat(o.l[+i].c);
   });
+}
+function bindSeedBtn(){
+  const b = $('#ord-seed');
+  if(!b) return;
+  b.onclick = ()=>{
+    let added=0, skipped=0;
+    for(const no in ORD_SEED){
+      if(S.orders.some(o=>o.no===no && o.s===sess)){ skipped++; continue; }
+      S.orders.push({ id:uid(), no, s:sess, ts:Date.now(), l:ORD_SEED[no].map(([c,q])=>({c,q})) });
+      added++;
+    }
+    save(); renderOrders(); renderPick();
+    toast(added ? (sessLabel(sess)+'에 '+added+'건 불러왔습니다'+(skipped?' ('+skipped+'건은 이미 있음)':''))
+                : '이미 모두 들어 있습니다');
+  };
 }
 $('#ord-new').onclick = ()=>{
   sheet('<h2>주문서 추가</h2><p class="sh-sub">'+sessLabel(sess)+' 세션에 담깁니다</p>'
@@ -853,6 +884,23 @@ function fitBox(floor){
   return [cx-w/2, cy-h/2, w, h];
 }
 let edit=false, tool='선택', selId=null, VB=[0,0,COLS*CELL,ROWS*CELL];
+let preview=null, pendNo='';
+function bump(no){
+  const n = parseInt(no,10);
+  return isNaN(n) ? no : (/^\d+$/.test(no) ? pad3(n+1) : String(n+1));
+}
+function syncNumbar(){
+  const on = edit && tool!=='선택' && tool!=='계단';
+  $('#numbar').style.display = on ? '' : 'none';
+  if(on) $('#n-val').value = pendNo;
+}
+$('#n-val').oninput = ()=>{ pendNo = ($('#n-val').value||'').trim(); };
+$('#n-up').onclick = ()=>{ pendNo = bump(pendNo); syncNumbar(); };
+$('#n-dn').onclick = ()=>{
+  const n = parseInt(pendNo,10);
+  if(!isNaN(n) && n>1) pendNo = /^\d+$/.test(pendNo) ? pad3(n-1) : String(n-1);
+  syncNumbar();
+};
 function renderPlan(){
   const f = S.ui.floor;
   $('#plan-floors').innerHTML = S.floors.map(x=>
@@ -862,7 +910,10 @@ function renderPlan(){
   TYPES.forEach(t=> n[t]=us.filter(u=>u.t===t).length);
   $('#plan-sub').textContent = TYPES.filter(t=>n[t]).map(t=>t+' '+n[t]).join(' · ') || '아직 배치된 것이 없습니다';
   $('#toolbar').style.display = edit?'':'none';
-  $('#plan-hint').textContent = edit ? (tool==='선택'?'유닛을 끌어 옮기세요':'빈 칸을 누르면 '+tool+'이 놓입니다') : '';
+  syncNumbar();
+  $('#plan-hint').textContent = edit
+    ? (tool==='선택' ? '끌어 옮기고 · 톡 누르면 수정' : '빈 곳을 누르면 '+tool+' 놓임')
+    : '';
   $('#plan-mode').textContent = edit?'완료':'편집';
   $('#plan-mode').className = 'btn '+(edit?'pri':'gh')+' sm';
   paint();
@@ -877,11 +928,24 @@ function renderPlan(){
     + '<b style="display:inline;font-size:14px">계단</b>을 꼭 하나 놓아주세요 — 층 이동 기준점입니다.</div>';
   $$('#plan-legend .chip').forEach(b=> b.onclick = ()=>{ edit=true; selId=b.dataset.u; renderPlan(); openUnitEdit(b.dataset.u); });
 }
-function paint(){ const s=$('#svg'); s.setAttribute('viewBox',VB.join(' ')); drawPlan(s,S.ui.floor,{grid:edit,sel:selId}); }
+function paint(){
+  const s=$('#svg'); s.setAttribute('viewBox',VB.join(' '));
+  let extra='';
+  if(preview){
+    extra = '<rect x="'+(preview.x*CELL)+'" y="'+(preview.y*CELL)+'" width="'+(preview.w*CELL)
+      + '" height="'+(preview.h*CELL)+'" rx="3" fill="'+FILL[preview.t]+'" fill-opacity=".75" stroke="'
+      + LINE[preview.t]+'" stroke-width="2.5" stroke-dasharray="6 4" style="pointer-events:none"/>';
+  }
+  drawPlan(s,S.ui.floor,{grid:edit,sel:selId,extra});
+}
 function fit(){ VB = fitBox(S.ui.floor); }
-$('#plan-mode').onclick = ()=>{ edit=!edit; selId=null; tool='선택'; syncTools(); renderPlan(); };
+$('#plan-mode').onclick = ()=>{ edit=!edit; selId=null; tool='선택'; preview=null; syncTools(); renderPlan(); };
 function syncTools(){ $$('.tool').forEach(b=>b.classList.toggle('on',b.dataset.t===tool)); }
-$$('.tool').forEach(b=> b.onclick = ()=>{ tool=b.dataset.t; selId=null; syncTools(); renderPlan(); });
+$$('.tool').forEach(b=> b.onclick = ()=>{
+  tool=b.dataset.t; selId=null; preview=null;
+  if(tool!=='선택') pendNo = nextNo(S.ui.floor, tool);
+  syncTools(); renderPlan();
+});
 $('#z-in').onclick=()=>zoom(0.8); $('#z-out').onclick=()=>zoom(1.25); $('#z-fit').onclick=()=>{fit();paint();};
 function zoom(k){
   const cx=VB[0]+VB[2]/2, cy=VB[1]+VB[3]/2;
@@ -900,12 +964,22 @@ svgEl.addEventListener('pointerdown', ev=>{
   const g=ev.target.closest('g.u'), p=toCell(ev);
   svgEl.setPointerCapture(ev.pointerId);
   if(!edit){ drag = g?{mode:'tap',id:g.dataset.id}:{mode:'pan',x0:ev.clientX,y0:ev.clientY,vb:VB.slice(),p}; return; }
-  if(tool!=='선택'){ drag={mode:'place',cx:p.cx,cy:p.cy}; return; }
+
+  // 유닛 위에서 시작하면 어떤 도구가 켜져 있든 옮기기
   if(g){
     const u=S.units.find(x=>x.id===g.dataset.id);
     selId=u.id; paint();
     drag={mode:'move',id:u.id,ox:p.cx-u.x,oy:p.cy-u.y,moved:false,x0:ev.clientX,y0:ev.clientY};
-  } else { selId=null; paint(); drag={mode:'pan',x0:ev.clientX,y0:ev.clientY,vb:VB.slice(),p}; }
+    return;
+  }
+  // 빈 곳 + 도구 선택됨 → 놓기 (톡 = 기본 크기, 끌면 그 크기)
+  if(tool!=='선택'){
+    drag={mode:'create',sx:p.cx,sy:p.cy,moved:false,x0:ev.clientX,y0:ev.clientY};
+    preview={x:Math.max(0,p.cx), y:Math.max(0,p.cy), w:1, h:1, t:tool};
+    paint();
+    return;
+  }
+  selId=null; paint(); drag={mode:'pan',x0:ev.clientX,y0:ev.clientY,vb:VB.slice(),p};
 });
 svgEl.addEventListener('pointermove', ev=>{
   if(!drag) return;
@@ -913,28 +987,49 @@ svgEl.addEventListener('pointermove', ev=>{
     VB[0]=drag.vb[0]-(ev.clientX-drag.x0)*drag.p.sx;
     VB[1]=drag.vb[1]-(ev.clientY-drag.y0)*drag.p.sy; paint();
   } else if(drag.mode==='move'){
-    if(Math.abs(ev.clientX-drag.x0)+Math.abs(ev.clientY-drag.y0)>5) drag.moved=true;
+    if(Math.abs(ev.clientX-drag.x0)+Math.abs(ev.clientY-drag.y0)>6) drag.moved=true;
     const p=toCell(ev), u=S.units.find(x=>x.id===drag.id);
     const nx=Math.max(0,Math.min(COLS-u.w,p.cx-drag.ox)), ny=Math.max(0,Math.min(ROWS-u.h,p.cy-drag.oy));
     if(nx!==u.x||ny!==u.y){ u.x=nx; u.y=ny; paint(); }
+  } else if(drag.mode==='create'){
+    if(Math.abs(ev.clientX-drag.x0)+Math.abs(ev.clientY-drag.y0)>8) drag.moved=true;
+    const p=toCell(ev);
+    const x0=Math.max(0,Math.min(drag.sx,p.cx)), y0=Math.max(0,Math.min(drag.sy,p.cy));
+    const x1=Math.min(COLS-1,Math.max(drag.sx,p.cx)), y1=Math.min(ROWS-1,Math.max(drag.sy,p.cy));
+    preview={x:x0, y:y0, w:Math.max(1,x1-x0+1), h:Math.max(1,y1-y0+1), t:tool};
+    paint();
   }
 });
 svgEl.addEventListener('pointerup', ev=>{
   if(!drag) return; const d=drag; drag=null;
-  if(d.mode==='tap') openUnitInfo(d.id);
-  else if(d.mode==='place') placeUnit(d.cx,d.cy);
-  else if(d.mode==='move'){ save(); if(!d.moved) openUnitEdit(d.id); else renderPlan(); }
+  if(d.mode==='tap'){ openUnitInfo(d.id); return; }
+  if(d.mode==='move'){ save(); if(!d.moved) openUnitEdit(d.id); else renderPlan(); return; }
+  if(d.mode==='create'){
+    const pv = preview; preview=null;
+    if(!pv){ paint(); return; }
+    placeUnit(pv.x, pv.y, d.moved?pv.w:DEF.w[tool], d.moved?pv.h:DEF.h[tool]);
+  }
 });
-svgEl.addEventListener('pointercancel', ()=>{drag=null;});
+svgEl.addEventListener('pointercancel', ()=>{ drag=null; preview=null; paint(); });
+
 function nextNo(f,t){
   const ns=S.units.filter(u=>u.f===f&&u.t===t).map(u=>parseInt(u.no,10)).filter(n=>!isNaN(n));
   return pad3(ns.length?Math.max.apply(null,ns)+1:1);
 }
-function placeUnit(cx,cy){
-  const f=S.ui.floor, t=tool, w=DEF.w[t], h=DEF.h[t];
+function placeUnit(cx,cy,w,h){
+  const f=S.ui.floor, t=tool;
+  w=Math.max(1,w||DEF.w[t]); h=Math.max(1,h||DEF.h[t]);
   const x=Math.max(0,Math.min(COLS-w,cx)), y=Math.max(0,Math.min(ROWS-h,cy));
-  const u={id:uid(),f,t,no:nextNo(f,t),x,y,w,h,tiers:DEF.tiers[t]};
-  S.units.push(u); save(); selId=u.id; renderPlan(); openUnitEdit(u.id,true);
+  let no = (t==='계단' || !pendNo) ? nextNo(f,t) : pendNo;
+  if(S.units.some(u=>u.f===f&&u.t===t&&u.no===no)){
+    toast(t+' '+no+' 은 이미 있습니다. 번호를 바꿔주세요.');
+    paint(); return;
+  }
+  const u={id:uid(),f,t,no,x,y,w,h,tiers:DEF.tiers[t]};
+  S.units.push(u);
+  pendNo = bump(no);
+  save(); selId=u.id; renderPlan();
+  toast(t+' '+no+' 놓음 · 톡 누르면 수정');
 }
 function openUnitInfo(id){
   const u=S.units.find(x=>x.id===id); if(!u) return;
@@ -1193,6 +1288,25 @@ const SEED = {
 "47944":["NEW고급스텐미용가위", "1F", "곤도라", "042", 5],
 "600000269":["대웅제약 rTG오메가3 6일분", "1F", "곤도라", "071", 5],
 "646710535":["프링글스사워크림&어니언(53g)", "2F", "벽면", "056", 1]
+};
+const ORD_SEED = {
+"0049":[["1029919",1],["1051097",1],["1059864",1],["1061379",1],["1067495",1],["1071783",1],["1080422",1],["1080425",1],["65376",1]],
+"0051":[["1038506",1],["1049226",1],["1049234",1],["1049243",1],["1049244",1],["1049246",1],["1056927",2]],
+"0052":[["1055936",1],["1062340",2],["1072233",1],["1072778",2],["41873",1],["57387",2],["591580521",2],["610910777",2]],
+"0054":[["1036811",1],["1045845",1],["1045847",1],["1050182",1],["1072854",1]],
+"0056":[["1001270",1],["1048910",1],["1050826",1],["1051097",1],["1053490",1],["1053494",1],["1058038",1],["1062230",1],["1067402",1],["61446",1]],
+"0057":[["1015655",2],["1021058",1],["1021447",1],["1049097",1],["1055178",1],["1058760",1],["1067519",1],["1069094",1],["1074690",1],["73528",1]],
+"0058":[["1044554",2],["1045146",1],["1061879",3],["1076130",1],["987253277",4]],
+"0059":[["1059139",5]],
+"0060":[["69135",4]],
+"0061":[["1055167",1],["1061529",1],["1062167",1]],
+"0062":[["1031913",2],["1046253",1],["1076107",1],["57116",4],["947020016",1]],
+"0063":[["1060602",1],["1060603",1],["1060644",2],["1061529",1],["1064243",1],["1064417",1],["1066900",3],["1067498",1],["1072556",1],["1072858",1]],
+"0064":[["1068973",2]],
+"0065":[["1003642",1],["1016619",1],["1021059",1],["1072635",1],["111774760",1],["47944",1],["600000269",1],["646710535",1]],
+"0066":[["1057230",1],["1065368",2],["44527",3],["69036",1]],
+"0067":[["1029927",1]],
+"0068":[["1011479",2],["1038327",1],["1043744",1],["1043750",1],["1050734",1],["1055168",1],["1061918",1],["1062239",2],["1067495",1]]
 };
 let seeded = 0;
 for(const k in SEED){
