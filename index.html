@@ -353,7 +353,7 @@ $('#mask').onclick = closeSheet;
 function go(v){
   $$('.view').forEach(e => e.classList.toggle('on', e.id===v));
   $$('.tab').forEach(b => b.classList.toggle('on', b.dataset.v===v));
-  if(v==='v-plan') renderPlanView();
+  if(v==='v-plan'){ fit(); renderPlanView(); }
   if(v==='v-items') renderItems();
   if(v==='v-set') renderSet();
   if(v==='v-find') renderFind();
@@ -400,7 +400,12 @@ function fitBox(floor){
   let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
   us.forEach(u=>{ x0=Math.min(x0,u.x); y0=Math.min(y0,u.y); x1=Math.max(x1,u.x+u.w); y1=Math.max(y1,u.y+u.h); });
   const m = 2;
-  return [(x0-m)*CELL, (y0-m)*CELL, (x1-x0+m*2)*CELL, (y1-y0+m*2)*CELL];
+  let w = (x1-x0+m*2)*CELL, h = (y1-y0+m*2)*CELL;
+  // 화면 비율(대략 4:3)보다 너무 납작하거나 길면 짧은 쪽을 늘려 여백을 고르게 둔다
+  const R = 1.35;
+  if(w/h > R) h = w/R; else if(h/w > 1/R*1.6) w = h*0.62;
+  const cx = (x0+x1)/2*CELL, cy = (y0+y1)/2*CELL;
+  return [cx-w/2, cy-h/2, w, h];
 }
 
 /* ==================== 평면도 화면 ==================== */
@@ -448,7 +453,8 @@ function renderLegend(){
     return '<div class="card"><h3 style="color:'+LINE[t]+'">'+t+' '+list.length+'개</h3><div class="chips">'
       + list.map(u=>{
           const c = itemsIn(u).length;
-          return '<button class="chip" data-u="'+u.id+'">'+esc(u.no)+(c?' <span style="color:var(--accent)">'+c+'</span>':'')+'</button>';
+          return '<button class="chip" data-u="'+u.id+'">'+esc(u.no)
+            + (c?'<span style="color:var(--accent);margin-left:5px">'+c+'</span>':'')+'</button>';
         }).join('') + '</div></div>';
   }).join('');
   $('#plan-legend').innerHTML = rows;
