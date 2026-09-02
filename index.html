@@ -154,6 +154,14 @@ svg.plan{display:block;width:100%;background:var(--surface);touch-action:none}
 .toast button{margin-left:auto;background:none;border:none;color:#F0B49A;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit;flex:none}
 .badge{font-size:11px;padding:3px 8px;border-radius:999px;background:var(--surface-2);color:var(--text-3);font-weight:600}
 .badge.ac{background:var(--accent-soft);color:var(--accent-strong)}
+/* 주문 구분: 퀵(당일출고) / 픽업(매장픽업) */
+.kind{font-size:11.5px;font-weight:700;padding:3px 8px;border-radius:7px;white-space:nowrap;
+  font-variant-numeric:tabular-nums;border:none;font-family:inherit;cursor:pointer}
+.kind.Q{background:#E4F2E6;color:#2E7D46}
+.kind.P{background:#E3EDFA;color:#1F6BB5}
+.kdot{width:9px;height:9px;border-radius:99px;display:inline-block;flex:none;margin-right:1px}
+.kdot.Q{background:#3F9A57}
+.kdot.P{background:#2B7FCC}
 table{width:100%;border-collapse:collapse;font-size:14px}
 td{padding:8px 0;border-bottom:1px solid var(--border)}
 tr:last-child td{border-bottom:none}
@@ -358,6 +366,10 @@ function locOf(code){ const c = S.cat[code]; return c && c.uno ? c : null; }
 function locStr(c){ return c && c.uno ? c.f+'-'+c.ut+'-'+c.uno+(c.ti?'-'+pad2(c.ti):'') : '위치 미지정'; }
 const ABBR = {곤도라:'곤', 벽면:'벽', 창고:'창', 계산대:'계', 계단:'단'};
 function abbr(t){ return ABBR[t] || ''; }
+/* 주문 구분 — Q: 퀵(당일출고), P: 픽업(매장픽업) */
+const KIND = { Q:'퀵', P:'픽업' };
+function kindOf(o){ return o.k === 'P' ? 'P' : 'Q'; }
+function kindLabel(o){ return KIND[kindOf(o)]; }
 
 let toastT=null, toastFn=null;
 function toast(msg, label, fn){
@@ -505,8 +517,11 @@ function renderPick(){
   const rem = remaining(), all = allLines();
   const doneN = all.length - rem.length;
   $('#pick-h').textContent = sessLabel(sess) + ' 피킹';
-  $('#pick-sub').textContent = all.length
-    ? (doneN + ' / ' + all.length + '줄 · ' + leftText())
+  const q = rem.filter(x=>kindOf(x.o)==='Q').length, pk = rem.length - q;
+  $('#pick-sub').innerHTML = all.length
+    ? (doneN + ' / ' + all.length + '줄 · ' + leftText()
+       + (rem.length ? ' <span style="color:#2E7D46">퀵 '+q+'</span>'
+                     + (pk ? ' <span style="color:#1F6BB5">픽업 '+pk+'</span>' : '') : ''))
     : '주문 탭에서 주문서를 담아주세요';
   $('#pick-prog').style.width = all.length ? (doneN/all.length*100)+'%' : '0%';
   const tn = $('#tab-n');
@@ -546,10 +561,13 @@ function renderPick(){
   h += '<div class="picks">';
   st.items.forEach(x=>{
     const c = S.cat[x.ln.c] || {};
+    const k = kindOf(x.o);
     h += '<div class="pk'+(x.ln.d?' done':'')+'" data-o="'+x.o.id+'" data-i="'+x.i+'">'
       + '<div class="bx">✓</div><div class="m">'
       + '<div class="nm">'+(c.ti?'<span class="tierbadge">'+c.ti+'면</span>':'')+esc(c.n||x.ln.c)+'</div>'
-      + '<div class="sub">'+esc(x.ln.c)+' · 주문 '+esc(x.o.no)+'</div></div>'
+      + '<div class="sub" style="display:flex;align-items:center;gap:6px">'
+      + '<span class="kind '+k+'" style="cursor:default">'+KIND[k]+' '+esc(x.o.no)+'</span>'
+      + '<span>'+esc(x.ln.c)+'</span></div></div>'
       + '<div class="qty">'+(x.ln.q||1)+'</div></div>';
   });
   h += '</div>';
@@ -603,9 +621,17 @@ function showRemainList(){
   if(!rem.length){ toast('남은 상품이 없습니다'); return; }
   const byOrd = {};
   rem.forEach(x=> (byOrd[x.o.no] = byOrd[x.o.no]||[]).push(x));
-  let h = '<h2>남은 상품 '+rem.length+'줄</h2><p class="sh-sub">'+sessLabel(sess)+' · 주문서별</p>';
-  Object.keys(byOrd).sort().forEach(no=>{
-    h += '<div class="card"><h3>주문 '+esc(no)+' · '+byOrd[no].length+'줄</h3>';
+  const qn = rem.filter(x=>kindOf(x.o)==='Q').length;
+  let h = '<h2>남은 상품 '+rem.length+'줄</h2>'
+    + '<p class="sh-sub">'+sessLabel(sess)+' · 퀵 '+qn+'줄 · 픽업 '+(rem.length-qn)+'줄</p>';
+  Object.keys(byOrd).sort((a,b)=>{
+    const ka=kindOf(byOrd[a][0].o), kb=kindOf(byOrd[b][0].o);
+    return ka===kb ? a.localeCompare(b) : (ka==='Q'?-1:1);   // 퀵 먼저
+  }).forEach(no=>{
+    const k = kindOf(byOrd[no][0].o);
+    h += '<div class="card"><h3 style="display:flex;align-items:center;gap:7px">'
+       + '<span class="kind '+k+'" style="cursor:default">'+KIND[k]+'</span>'
+       + '주문 '+esc(no)+' · '+byOrd[no].length+'줄</h3>';
     byOrd[no].forEach(x=>{
       const c = S.cat[x.ln.c]||{};
       h += '<div class="itm"><div class="txt"><div class="nm">'+esc(c.n||x.ln.c)+'</div>'
@@ -628,7 +654,7 @@ function renderOrders(){
 
   const box = $('#ord-body');
   const nOrd = Object.keys(ORD_SEED).length;
-  const nLn = Object.values(ORD_SEED).reduce((a,x)=>a+x.length,0);
+  const nLn = Object.values(ORD_SEED).reduce((a,x)=>a+(Array.isArray(x)?x:x.l).length,0);
   const loadBtn = '<button class="btn gh" id="ord-seed" style="margin-top:6px">'
     + '올려주신 주문 '+nOrd+'건 불러오기<small style="display:block;font-size:12px;font-weight:450;opacity:.7;margin-top:2px">'
     + '9/2 주문서 0049~0068 · '+nLn+'줄</small></button>';
@@ -640,7 +666,10 @@ function renderOrders(){
   }
   box.innerHTML = os.slice().reverse().map(o=>{
     const done = o.l.filter(l=>l.d).length;
-    return '<div class="card"><h3 style="display:flex;align-items:center;gap:8px">주문 '+esc(o.no)
+    const k = kindOf(o);
+    return '<div class="card"><h3 style="display:flex;align-items:center;gap:8px">'
+      + '<button class="kind '+k+'" data-k="'+o.id+'">'+KIND[k]+'</button>'
+      + '주문 '+esc(o.no)
       + '<span class="badge'+(done===o.l.length&&o.l.length?'':' ac')+'">'+done+'/'+o.l.length+'</span>'
       + '<span style="flex:1"></span>'
       + '<button class="act" data-add="'+o.id+'" style="border:1px solid var(--border-strong);background:var(--surface);'
@@ -657,6 +686,12 @@ function renderOrders(){
       + '</div>';
   }).join('') + loadBtn;
   bindSeedBtn();
+  $$('#ord-body [data-k]').forEach(b=> b.onclick = ()=>{
+    const o = S.orders.find(x=>x.id===b.dataset.k);
+    o.k = kindOf(o)==='Q' ? 'P' : 'Q';
+    save(); renderOrders(); renderPick();
+    toast('주문 '+o.no+' → '+kindLabel(o));
+  });
   $$('#ord-body [data-add]').forEach(b=> b.onclick = ()=> openCodeEntry(b.dataset.add));
   $$('#ord-body [data-del]').forEach(b=> b.onclick = ()=>{
     const o = S.orders.find(x=>x.id===b.dataset.del);
@@ -681,7 +716,10 @@ function bindSeedBtn(){
     let added=0, skipped=0;
     for(const no in ORD_SEED){
       if(S.orders.some(o=>o.no===no && o.s===sess)){ skipped++; continue; }
-      S.orders.push({ id:uid(), no, s:sess, ts:Date.now(), l:ORD_SEED[no].map(([c,q])=>({c,q})) });
+      const d = ORD_SEED[no];
+      const lines = Array.isArray(d) ? d : d.l;          // 옛 형식도 받아준다
+      const k = Array.isArray(d) ? 'Q' : (d.k || 'Q');
+      S.orders.push({ id:uid(), no, k, s:sess, ts:Date.now(), l:lines.map(([c,q])=>({c,q})) });
       added++;
     }
     save(); renderOrders(); renderPick();
@@ -690,9 +728,21 @@ function bindSeedBtn(){
   };
 }
 $('#ord-new').onclick = ()=>{
+  let kind = 'Q';
   sheet('<h2>주문서 추가</h2><p class="sh-sub">'+sessLabel(sess)+' 세션에 담깁니다</p>'
+    + '<label class="fld"><span>구분</span><div class="row">'
+    + '<button class="btn gh" id="k-q" style="padding:14px">퀵<small style="display:block;font-size:11.5px;font-weight:450;opacity:.7">당일출고 · 오늘배송</small></button>'
+    + '<button class="btn gh" id="k-p" style="padding:14px">픽업<small style="display:block;font-size:11.5px;font-weight:450;opacity:.7">매장픽업</small></button>'
+    + '</div></label>'
     + '<label class="fld"><span>주문서 번호</span><input id="on" class="big-in" inputmode="numeric" placeholder="0063" maxlength="8"></label>'
     + '<button class="btn pri" id="on-ok">만들고 코드 넣기</button>');
+  const syncK = ()=>{
+    $('#k-q').style.cssText = 'padding:14px;' + (kind==='Q'?'background:#E4F2E6;border-color:#3F9A57;color:#2E7D46':'');
+    $('#k-p').style.cssText = 'padding:14px;' + (kind==='P'?'background:#E3EDFA;border-color:#2B7FCC;color:#1F6BB5':'');
+  };
+  $('#k-q').onclick = ()=>{ kind='Q'; syncK(); };
+  $('#k-p').onclick = ()=>{ kind='P'; syncK(); };
+  syncK();
   setTimeout(()=>$('#on').focus(), 150);
   $('#on').onkeydown = e=>{ if(e.key==='Enter') $('#on-ok').click(); };
   $('#on-ok').onclick = ()=>{
@@ -700,7 +750,7 @@ $('#ord-new').onclick = ()=>{
     if(!no){ toast('주문서 번호를 입력해 주세요'); return; }
     if(/^\d+$/.test(no)) no = no.padStart(4,'0');
     if(S.orders.some(o=>o.no===no && o.s===sess)){ toast('이미 담긴 주문서입니다'); return; }
-    const o = { id:uid(), no, s:sess, ts:Date.now(), l:[] };
+    const o = { id:uid(), no, k:kind, s:sess, ts:Date.now(), l:[] };
     S.orders.push(o); save(); renderOrders(); renderPick();
     openCodeEntry(o.id);
   };
@@ -1134,7 +1184,9 @@ function renderSet(){
    +'<tr><td>기억 중인 상품</td><td class="r">'+codes.length+'</td></tr>'
    +'<tr><td>위치 없는 상품</td><td class="r">'+codes.filter(k=>!S.cat[k].uno).length+'</td></tr>'
    +'<tr><td>오전 주문</td><td class="r">'+am.length+'건 · '+ln(am)+'줄</td></tr>'
-   +'<tr><td>오후 주문</td><td class="r">'+pm.length+'건 · '+ln(pm)+'줄</td></tr>';
+   +'<tr><td>오후 주문</td><td class="r">'+pm.length+'건 · '+ln(pm)+'줄</td></tr>'
+   +'<tr><td>퀵 / 픽업</td><td class="r">'+S.orders.filter(o=>kindOf(o)==='Q').length+'건 / '
+   + S.orders.filter(o=>kindOf(o)==='P').length+'건</td></tr>';
   $('#t-am1').value=S.times.am[0]; $('#t-am2').value=S.times.am[1];
   $('#t-pm1').value=S.times.pm[0]; $('#t-pm2').value=S.times.pm[1];
   $('#floor-mgr').innerHTML = S.floors.map(f=>
@@ -1324,23 +1376,23 @@ const SEED = {
 "646710535":["프링글스사워크림&어니언(53g)", "2F", "벽면", "056", 1]
 };
 const ORD_SEED = {
-"0049":[["1029919",1],["1051097",1],["1059864",1],["1061379",1],["1067495",1],["1071783",1],["1080422",1],["1080425",1],["65376",1]],
-"0051":[["1038506",1],["1049226",1],["1049234",1],["1049243",1],["1049244",1],["1049246",1],["1056927",2]],
-"0052":[["1055936",1],["1062340",2],["1072233",1],["1072778",2],["41873",1],["57387",2],["591580521",2],["610910777",2]],
-"0054":[["1036811",1],["1045845",1],["1045847",1],["1050182",1],["1072854",1]],
-"0056":[["1001270",1],["1048910",1],["1050826",1],["1051097",1],["1053490",1],["1053494",1],["1058038",1],["1062230",1],["1067402",1],["61446",1]],
-"0057":[["1015655",2],["1021058",1],["1021447",1],["1049097",1],["1055178",1],["1058760",1],["1067519",1],["1069094",1],["1074690",1],["73528",1]],
-"0058":[["1044554",2],["1045146",1],["1061879",3],["1076130",1],["987253277",4]],
-"0059":[["1059139",5]],
-"0060":[["69135",4]],
-"0061":[["1055167",1],["1061529",1],["1062167",1]],
-"0062":[["1031913",2],["1046253",1],["1076107",1],["57116",4],["947020016",1]],
-"0063":[["1060602",1],["1060603",1],["1060644",2],["1061529",1],["1064243",1],["1064417",1],["1066900",3],["1067498",1],["1072556",1],["1072858",1]],
-"0064":[["1068973",2]],
-"0065":[["1003642",1],["1016619",1],["1021059",1],["1072635",1],["111774760",1],["47944",1],["600000269",1],["646710535",1]],
-"0066":[["1057230",1],["1065368",2],["44527",3],["69036",1]],
-"0067":[["1029927",1]],
-"0068":[["1011479",2],["1038327",1],["1043744",1],["1043750",1],["1050734",1],["1055168",1],["1061918",1],["1062239",2],["1067495",1]]
+"0049":{"k":"Q","l":[["1029919",1],["1051097",1],["1059864",1],["1061379",1],["1067495",1],["1071783",1],["1080422",1],["1080425",1],["65376",1]]},
+"0051":{"k":"Q","l":[["1038506",1],["1049226",1],["1049234",1],["1049243",1],["1049244",1],["1049246",1],["1056927",2]]},
+"0052":{"k":"Q","l":[["1055936",1],["1062340",2],["1072233",1],["1072778",2],["41873",1],["57387",2],["591580521",2],["610910777",2]]},
+"0054":{"k":"Q","l":[["1036811",1],["1045845",1],["1045847",1],["1050182",1],["1072854",1]]},
+"0056":{"k":"Q","l":[["1001270",1],["1048910",1],["1050826",1],["1051097",1],["1053490",1],["1053494",1],["1058038",1],["1062230",1],["1067402",1],["61446",1]]},
+"0057":{"k":"Q","l":[["1015655",2],["1021058",1],["1021447",1],["1049097",1],["1055178",1],["1058760",1],["1067519",1],["1069094",1],["1074690",1],["73528",1]]},
+"0058":{"k":"Q","l":[["1044554",2],["1045146",1],["1061879",3],["1076130",1],["987253277",4]]},
+"0059":{"k":"Q","l":[["1059139",5]]},
+"0060":{"k":"Q","l":[["69135",4]]},
+"0061":{"k":"Q","l":[["1055167",1],["1061529",1],["1062167",1]]},
+"0062":{"k":"Q","l":[["1031913",2],["1046253",1],["1076107",1],["57116",4],["947020016",1]]},
+"0063":{"k":"Q","l":[["1060602",1],["1060603",1],["1060644",2],["1061529",1],["1064243",1],["1064417",1],["1066900",3],["1067498",1],["1072556",1],["1072858",1]]},
+"0064":{"k":"P","l":[["1068973",2]]},
+"0065":{"k":"Q","l":[["1003642",1],["1016619",1],["1021059",1],["1072635",1],["111774760",1],["47944",1],["600000269",1],["646710535",1]]},
+"0066":{"k":"Q","l":[["1057230",1],["1065368",2],["44527",3],["69036",1]]},
+"0067":{"k":"P","l":[["1029927",1]]},
+"0068":{"k":"Q","l":[["1011479",2],["1038327",1],["1043744",1],["1043750",1],["1050734",1],["1055168",1],["1061918",1],["1062239",2],["1067495",1]]}
 };
 let seeded = 0;
 for(const k in SEED){
