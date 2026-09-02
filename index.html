@@ -333,7 +333,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-03-i';
+const APP_VER = '2026-09-03-j';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 const TYPES = ['곤도라','벽면','창고','계산대','계단'];
 const LOC_TYPES = ['곤도라','벽면','창고','계산대'];
@@ -1207,6 +1207,7 @@ $('#shot-file').onchange = async ev=>{
     // 두 번 읽는다. 숫자·층·번호는 영문 인식이, 구역·상품명은 한글 인식이 정확하다.
     const numText = await runAll('eng', '코드와 번호 읽는 중');
     const korText = await runAll('kor', '구역과 상품명 읽는 중');
+    RAW = { eng: numText, kor: korText };
     reviewShot(parseShot(numText, korText));
   }catch(e){
     sheet('<h2>사진을 읽지 못했습니다</h2>'
@@ -1218,7 +1219,7 @@ $('#shot-file').onchange = async ev=>{
   }
 };
 
-let SHOT = null;
+let SHOT = null, RAW = null;
 function reviewShot(res, raw){
   SHOT = res;
   drawReview();
@@ -1227,7 +1228,8 @@ function drawReview(){
   const res = SHOT;
   const n = res.rows.filter(r=>r.on).length;
   let h = '<h2>읽은 결과 확인</h2>'
-    + '<p class="sh-sub">틀린 곳은 눌러서 고치세요. 체크된 것만 담깁니다.</p>'
+    + '<p class="sh-sub">틀린 곳은 눌러서 고치세요. 체크된 것만 담깁니다. '
+    + '<span style="color:var(--text-3)">앱 '+APP_VER+'</span></p>'
     + '<div class="row" style="margin-bottom:12px">'
     + '<label class="fld" style="margin:0"><span>주문서 번호</span>'
     + '<input id="sh-no" value="'+esc(res.no)+'" inputmode="numeric" placeholder="0069"></label>'
@@ -1280,8 +1282,11 @@ function drawReview(){
       }).join('') + '</div>';
   }
   h += '<button class="btn pri" id="sh-ok"'+(n?'':' disabled')+'>'+n+'개 담기</button>'
-     + '<button class="btn gh" id="sh-cancel" style="margin-top:9px">취소</button>';
+     + '<button class="btn gh" id="sh-cancel" style="margin-top:9px">취소</button>'
+     + (RAW ? '<button class="btn gh" id="sh-raw" style="margin-top:9px;font-size:13px;color:var(--text-3)">'
+              + '읽은 원문 보기 (문제 있을 때)</button>' : '');
   sheet(h);
+  if($('#sh-raw')) $('#sh-raw').onclick = showRaw;
 
   $$('#sheet-body [data-t]').forEach(b=> b.onclick = ()=>{
     const r = SHOT.rows[+b.dataset.t]; r.on = !r.on; drawReview();
@@ -1302,6 +1307,23 @@ function drawReview(){
   });
   $('#sh-cancel').onclick = closeSheet;
   $('#sh-ok').onclick = commitShot;
+}
+/* OCR 이 실제로 무엇을 읽었는지 그대로 보여준다.
+   결과가 이상할 때 원인을 찾으려면 이게 있어야 한다. */
+function showRaw(){
+  const box = s => '<textarea readonly style="width:100%;height:190px;font-family:var(--font-mono,monospace);'
+    + 'font-size:11px;line-height:1.5;white-space:pre;overflow:auto">'+esc(s||'(없음)')+'</textarea>';
+  sheet('<h2>읽은 원문</h2><p class="sh-sub">앱 '+APP_VER+' · 이 내용을 그대로 보내주시면 원인을 찾을 수 있습니다</p>'
+    + '<div class="card"><h3>1차 · 숫자 (영문 인식)</h3>'+box(RAW&&RAW.eng)+'</div>'
+    + '<div class="card"><h3>2차 · 한글 인식</h3>'+box(RAW&&RAW.kor)+'</div>'
+    + '<button class="btn pri" id="raw-copy">둘 다 복사</button>'
+    + '<button class="btn gh" id="raw-back" style="margin-top:9px">돌아가기</button>');
+  $('#raw-copy').onclick = async ()=>{
+    const t = '=== 앱 '+APP_VER+' ===\n\n[1차 영문]\n'+(RAW&&RAW.eng||'')+'\n\n[2차 한글]\n'+(RAW&&RAW.kor||'');
+    try{ await navigator.clipboard.writeText(t); toast('복사했습니다'); }
+    catch(e){ toast('복사가 안 되면 글상자를 길게 눌러 전체선택하세요'); }
+  };
+  $('#raw-back').onclick = drawReview;
 }
 function editShotLoc(i){
   const r = SHOT.rows[i];
