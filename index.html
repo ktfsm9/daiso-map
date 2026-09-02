@@ -195,6 +195,13 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
     <button class="btn gh sm" id="ord-new" style="width:auto">+ 주문서</button>
   </div>
   <input type="file" id="shot-file" accept="image/*" multiple style="display:none">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+    <button class="zoom" id="d-prev">‹</button>
+    <button class="chip on" id="d-cur" style="flex:1;text-align:center;padding:9px 8px;font-size:14.5px"></button>
+    <button class="zoom" id="d-next">›</button>
+    <button class="zoom" id="d-pick" style="width:auto;padding:0 11px;font-size:12px;font-weight:600">날짜</button>
+  </div>
+  <div id="ord-left"></div>
   <div class="chips" id="ord-sess" style="margin-bottom:11px"></div>
   <div class="scroll" id="ord-body"></div>
 </section>
@@ -326,7 +333,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-03-c';
+const APP_VER = '2026-09-03-d';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 const TYPES = ['곤도라','벽면','창고','계산대','계단'];
 const LOC_TYPES = ['곤도라','벽면','창고','계산대'];
@@ -340,7 +347,22 @@ const LINE = {곤도라:'#7C6BAF',벽면:'#2F7DA8',창고:'#B07A2F',계산대:'#
 let S = load();
 function blank(){
   return { v:1, floors:['B1','1F','1.5F','2F'], units:[], cat:{}, orders:[],
-           cur:{f:'1F'}, times:{am:['10:00','13:30'], pm:['15:00','18:30']}, ui:{floor:'1F'} };
+           cur:{f:'1F'}, times:{am:['10:00','13:30'], pm:['15:00','18:30']},
+           ui:{floor:'1F', date:today()} };
+}
+/* ---- 날짜 ---- */
+const DOW = ['일','월','화','수','목','금','토'];
+/* let S = load() 가 위에서 먼저 도므로 함수 선언으로 둔다 (const 는 호이스팅되지 않음) */
+function z2(n){ return String(n).padStart(2,'0'); }
+function ymd(d){ return d.getFullYear()+'-'+z2(d.getMonth()+1)+'-'+z2(d.getDate()); }
+function today(){ return ymd(new Date()); }
+function shiftDate(s, n){ const d = new Date(s+'T12:00:00'); d.setDate(d.getDate()+n); return ymd(d); }
+function dateLabel(s){
+  if(!s) return '';
+  const d = new Date(s+'T12:00:00');
+  const t = today();
+  const tag = s===t ? ' 오늘' : s===shiftDate(t,-1) ? ' 어제' : s===shiftDate(t,1) ? ' 내일' : '';
+  return (d.getMonth()+1)+'/'+d.getDate()+'('+DOW[d.getDay()]+')'+tag;
 }
 function load(){
   try{ const o = JSON.parse(localStorage.getItem(KEY)); if(o && o.cat) return fill(o); }catch(e){}
@@ -362,6 +384,10 @@ function fill(o){
   for(const k in b) if(o[k] === undefined) o[k] = b[k];
   o.times = o.times || b.times;
   o.cur = o.cur || b.cur;
+  o.ui = o.ui || b.ui;
+  // 날짜가 없던 주문은 담은 날짜로 채운다
+  (o.orders||[]).forEach(x=>{ if(!x.d) x.d = x.ts ? ymd(new Date(x.ts)) : today(); });
+  if(!o.ui.date) o.ui.date = today();
   return o;
 }
 let saveT=null;
@@ -427,7 +453,16 @@ function leftText(){
 }
 
 /* ==================== 주문 ==================== */
-function sessOrders(){ return S.orders.filter(o=>o.s===sess); }
+function curDate(){ return S.ui.date || today(); }
+function sessOrders(){ return S.orders.filter(o=>o.s===sess && o.d===curDate()); }
+/* 다른 날짜에 남아 있는 미완료 주문 */
+function leftovers(){
+  const d = curDate();
+  return S.orders.filter(o=> o.d !== d && o.l.length && o.l.some(l=>!l.d));
+}
+function orderDates(){
+  return [...new Set(S.orders.map(o=>o.d).filter(Boolean))].sort().reverse();
+}
 function allLines(){
   const out = [];
   sessOrders().forEach(o => o.l.forEach((ln,i)=> out.push({o, ln, i})));
@@ -536,7 +571,7 @@ function renderPick(){
   RT = buildRoute();
   const rem = remaining(), all = allLines();
   const doneN = all.length - rem.length;
-  $('#pick-h').textContent = sessLabel(sess) + ' 피킹';
+  $('#pick-h').textContent = dateLabel(curDate()).replace(/ (오늘|어제|내일)$/,'') + ' ' + sessLabel(sess) + ' 피킹';
   const q = rem.filter(x=>kindOf(x.o)==='Q').length, pk = rem.length - q;
   $('#pick-sub').innerHTML = all.length
     ? (doneN + ' / ' + all.length + '줄 · ' + leftText()
@@ -663,14 +698,76 @@ function showRemainList(){
 }
 
 /* ==================== 주문 화면 ==================== */
+function setDate(d){ S.ui.date = d; save(); renderOrders(); renderPick(); }
+function curDateShort(){ const d = new Date(curDate()+'T12:00:00'); return (d.getMonth()+1)+'/'+d.getDate(); }
+function openDatePick(){
+  const ds = orderDates();
+  const t = today();
+  sheet('<h2>날짜 고르기</h2><p class="sh-sub">주문이 담긴 날짜와 직접 입력</p>'
+    + '<label class="fld"><span>날짜</span><input type="date" id="dp" value="'+esc(curDate())+'"></label>'
+    + '<div class="chips" style="margin-bottom:14px">'
+    + '<button class="chip" data-d="'+t+'">오늘</button>'
+    + '<button class="chip" data-d="'+shiftDate(t,-1)+'">어제</button>'
+    + '</div>'
+    + (ds.length ? '<div class="card"><h3>주문이 있는 날</h3><div class="chips">'
+        + ds.map(d=>{
+            const n = S.orders.filter(o=>o.d===d).reduce((a,o)=>a+o.l.length,0);
+            const rest = S.orders.filter(o=>o.d===d).reduce((a,o)=>a+o.l.filter(l=>!l.d).length,0);
+            return '<button class="chip'+(d===curDate()?' on':'')+'" data-d="'+d+'">'+dateLabel(d)
+                 + ' <span style="opacity:.7">'+n+'줄</span>'
+                 + (rest?' <span style="color:var(--accent)">남음 '+rest+'</span>':'')+'</button>';
+          }).join('') + '</div></div>' : '')
+    + '<button class="btn pri" id="dp-ok">이 날짜로 보기</button>');
+  $$('#sheet-body [data-d]').forEach(b=> b.onclick = ()=>{ closeSheet(); setDate(b.dataset.d); });
+  $('#dp-ok').onclick = ()=>{ const v = $('#dp').value; if(v){ closeSheet(); setDate(v); } };
+}
 function renderOrders(){
+  $('#d-cur').textContent = dateLabel(curDate());
+  $('#d-prev').onclick = ()=> setDate(shiftDate(curDate(), -1));
+  $('#d-next').onclick = ()=> setDate(shiftDate(curDate(), 1));
+  $('#d-pick').onclick = openDatePick;
+
+  // 다른 날짜에 못 끝낸 주문이 있으면 알려준다
+  const lo = leftovers();
+  if(lo.length){
+    const byD = {};
+    lo.forEach(o=>{ const n = o.l.filter(l=>!l.d).length; byD[o.d] = (byD[o.d]||0)+n; });
+    $('#ord-left').innerHTML = '<div class="verdict no" style="margin-bottom:10px">'
+      + '<b>다른 날짜에 남은 주문이 있습니다</b><br>'
+      + Object.keys(byD).sort().map(d=>dateLabel(d)+' '+byD[d]+'줄').join(' · ')
+      + '<div style="margin-top:9px;display:flex;gap:8px;flex-wrap:wrap">'
+      + Object.keys(byD).sort().map(d=>'<button class="chip" data-go="'+d+'">'+dateLabel(d)+' 보기</button>').join('')
+      + '<button class="chip" id="carry" style="background:var(--no);border-color:var(--no);color:#fff">'
+      + curDateShort()+'로 넘기기</button></div></div>';
+    $$('#ord-left [data-go]').forEach(b=> b.onclick = ()=> setDate(b.dataset.go));
+    $('#carry').onclick = ()=>{
+      const d = curDate();
+      const n = lo.reduce((a,o)=>a+o.l.filter(l=>!l.d).length,0);
+      if(!confirm('남은 '+n+'줄을 '+dateLabel(d)+' 로 넘길까요?\n(이미 집은 줄은 그대로 둡니다)')) return;
+      lo.forEach(o=>{
+        const rest = o.l.filter(l=>!l.d);
+        if(!rest.length) return;
+        o.l = o.l.filter(l=>l.d);                 // 원래 날짜엔 완료분만 남긴다
+        let t = S.orders.find(x=>x.no===o.no && x.d===d && x.s===sess);
+        if(!t){ t = {id:uid(), no:o.no, k:o.k, s:sess, d, ts:Date.now(), l:[]}; S.orders.push(t); }
+        rest.forEach(l=>{
+          const ex = t.l.find(y=>y.c===l.c);
+          if(ex) ex.q = Math.max(ex.q||1, l.q||1); else t.l.push({c:l.c, q:l.q});
+        });
+        if(!o.l.length) S.orders = S.orders.filter(x=>x.id!==o.id);
+      });
+      save(); renderOrders(); renderPick();
+      toast(n+'줄을 '+dateLabel(d)+' 로 넘겼습니다');
+    };
+  } else $('#ord-left').innerHTML = '';
+
   $('#ord-sess').innerHTML = ['am','pm'].map(s=>
     '<button class="chip'+(sess===s?' on':'')+'" data-s="'+s+'">'+sessLabel(s)+' '+S.times[s][0]+'~'+S.times[s][1]+'</button>').join('');
   $$('#ord-sess .chip').forEach(b=> b.onclick = ()=>{ sess = b.dataset.s; renderOrders(); renderPick(); });
 
   const os = sessOrders();
   const lines = os.reduce((a,o)=>a+o.l.length,0);
-  $('#ord-sub').textContent = os.length ? (os.length+'건 · '+lines+'줄') : '주문서를 만들어 상품코드를 넣으세요';
+  $('#ord-sub').textContent = dateLabel(curDate()) + ' ' + sessLabel(sess) + ' · ' + (os.length ? (os.length+'건 '+lines+'줄') : '비어 있음');
 
   const box = $('#ord-body');
   const nOrd = Object.keys(ORD_SEED).length;
@@ -735,11 +832,11 @@ function bindSeedBtn(){
   b.onclick = ()=>{
     let added=0, skipped=0;
     for(const no in ORD_SEED){
-      if(S.orders.some(o=>o.no===no && o.s===sess)){ skipped++; continue; }
+      if(S.orders.some(o=>o.no===no && o.s===sess && o.d===curDate())){ skipped++; continue; }
       const d = ORD_SEED[no];
       const lines = Array.isArray(d) ? d : d.l;          // 옛 형식도 받아준다
       const k = Array.isArray(d) ? 'Q' : (d.k || 'Q');
-      S.orders.push({ id:uid(), no, k, s:sess, ts:Date.now(), l:lines.map(([c,q])=>({c,q})) });
+      S.orders.push({ id:uid(), no, k, s:sess, d:curDate(), ts:Date.now(), l:lines.map(([c,q])=>({c,q})) });
       added++;
     }
     save(); renderOrders(); renderPick();
@@ -769,8 +866,8 @@ $('#ord-new').onclick = ()=>{
     let no = ($('#on').value||'').trim();
     if(!no){ toast('주문서 번호를 입력해 주세요'); return; }
     if(/^\d+$/.test(no)) no = no.padStart(4,'0');
-    if(S.orders.some(o=>o.no===no && o.s===sess)){ toast('이미 담긴 주문서입니다'); return; }
-    const o = { id:uid(), no, k:kind, s:sess, ts:Date.now(), l:[] };
+    if(S.orders.some(o=>o.no===no && o.s===sess && o.d===curDate())){ toast('이 날짜에 이미 담긴 주문서입니다'); return; }
+    const o = { id:uid(), no, k:kind, s:sess, d:curDate(), ts:Date.now(), l:[] };
     S.orders.push(o); save(); renderOrders(); renderPick();
     openCodeEntry(o.id);
   };
@@ -1159,9 +1256,9 @@ function commitShot(){
     }
   });
 
-  let o = S.orders.find(x=>x.no===no && x.s===sess);
+  let o = S.orders.find(x=>x.no===no && x.s===sess && x.d===curDate());
   const isNew = !o;
-  if(!o){ o = { id:uid(), no, k:kind, s:sess, ts:Date.now(), l:[] }; S.orders.push(o); }
+  if(!o){ o = { id:uid(), no, k:kind, s:sess, d:curDate(), ts:Date.now(), l:[] }; S.orders.push(o); }
   else o.k = kind;
   let added=0;
   rows.forEach(r=>{
@@ -1541,16 +1638,19 @@ function openUnitEdit(id,isNew){
 /* ==================== 설정 ==================== */
 function renderSet(){
   const codes=Object.keys(S.cat);
-  const am=S.orders.filter(o=>o.s==='am'), pm=S.orders.filter(o=>o.s==='pm');
   const ln=o=>o.reduce((a,x)=>a+x.l.length,0);
-  $('#set-stat').innerHTML =
-    '<tr><td>평면도 유닛</td><td class="r">'+S.units.length+'</td></tr>'
+  const rest=o=>o.reduce((a,x)=>a+x.l.filter(l=>!l.d).length,0);
+  let h = '<tr><td>평면도 유닛</td><td class="r">'+S.units.length+'</td></tr>'
    +'<tr><td>기억 중인 상품</td><td class="r">'+codes.length+'</td></tr>'
-   +'<tr><td>위치 없는 상품</td><td class="r">'+codes.filter(k=>!S.cat[k].uno).length+'</td></tr>'
-   +'<tr><td>오전 주문</td><td class="r">'+am.length+'건 · '+ln(am)+'줄</td></tr>'
-   +'<tr><td>오후 주문</td><td class="r">'+pm.length+'건 · '+ln(pm)+'줄</td></tr>'
-   +'<tr><td>퀵 / 픽업</td><td class="r">'+S.orders.filter(o=>kindOf(o)==='Q').length+'건 / '
-   + S.orders.filter(o=>kindOf(o)==='P').length+'건</td></tr>';
+   +'<tr><td>위치 없는 상품</td><td class="r">'+codes.filter(k=>!S.cat[k].uno).length+'</td></tr>';
+  orderDates().slice(0,10).forEach(d=>{
+    const os = S.orders.filter(o=>o.d===d);
+    const r = rest(os);
+    h += '<tr><td>'+esc(dateLabel(d))+'</td><td class="r">'+os.length+'건 '+ln(os)+'줄'
+       + (r ? ' <b style="color:var(--accent)">남음 '+r+'</b>' : ' <span style="color:var(--ok)">완료</span>')
+       + '</td></tr>';
+  });
+  $('#set-stat').innerHTML = h;
   $('#set-ver').textContent = APP_VER;
   $('#set-reload').onclick = hardReload;
   $('#t-am1').value=S.times.am[0]; $('#t-am2').value=S.times.am[1];
