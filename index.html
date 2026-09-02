@@ -354,7 +354,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-03-t';
+const APP_VER = '2026-09-03-u';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 const TYPES = ['곤도라','벽면','창고','계산대','계단'];
 const LOC_TYPES = ['곤도라','벽면','창고','계산대'];
@@ -539,6 +539,34 @@ function byOrderCount(){
 }
 function totalQty(list){ return list.reduce((a,x)=> a + (x.ln.q||1), 0); }
 
+/* ===== 집은 순서 기록 =====
+   같은 번호를 받은 줄은 한 번에 집은 것이다.
+   되돌리기는 가장 마지막 번호를 통째로 되돌린다. */
+function stampDone(lines){
+  if(!lines.length) return;
+  S.seq = (S.seq || 0) + 1;
+  lines.forEach(x=>{ x.ln.d = true; x.ln.t = S.seq; });
+}
+function lastBatch(){
+  const done = allLines().filter(x=>x.ln.d);
+  if(!done.length) return null;
+  let mx = 0;
+  done.forEach(x=>{ if((x.ln.t||0) > mx) mx = x.ln.t||0; });
+  // 예전 기록엔 번호가 없다 — 그럴 땐 마지막 한 줄만 되돌린다
+  if(!mx) return [done[done.length-1]];
+  return done.filter(x=> (x.ln.t||0) === mx);
+}
+function undoLast(){
+  const b = lastBatch();
+  if(!b || !b.length){ toast('되돌릴 것이 없습니다'); return; }
+  b.forEach(x=>{ x.ln.d = false; delete x.ln.t; });
+  const c = locOf(b[0].ln.c);
+  if(c) S.cur.f = c.f;
+  HOLD = c ? {k: c.f+'|'+c.ut+'|'+c.uno, lap: kindOf(b[0].o)} : null;   // 되돌린 자리로
+  save(); renderPick();
+  toast(b.length + '줄 되돌렸습니다');
+}
+
 /* ==================== 동선 엔진 ==================== */
 /* 남은 라인을 매대 단위로 묶고, 층은 한 번씩만 방문하도록 순서를 잡는다.
    층 내부는 최근접이웃 + 2-opt 로 개선한다. */
@@ -658,6 +686,24 @@ function orderStops(list, start, back){
 
 /* ==================== 피킹 화면 ==================== */
 let RT = null;
+/* 지금 서 있는 자리. 다 체크해도 "이 자리 완료"를 누르기 전에는 넘어가지 않는다. */
+let HOLD = null;
+
+/* 붙잡은 자리를 화면용으로 다시 만든다 (집은 줄까지 함께 보여준다)
+   HOLD = {k:자리, lap:'P'|'Q'} — 같은 자리라도 픽업 바퀴와 퀵 바퀴를 섞지 않는다 */
+function holdStop(hold){
+  if(!hold) return null;
+  const items = scopedAll().filter(x=>{
+    if(kindOf(x.o) !== hold.lap) return false;
+    const c = locOf(x.ln.c);
+    return c && (c.f+'|'+c.ut+'|'+c.uno) === hold.k;
+  });
+  if(!items.length) return null;
+  const c = locOf(items[0].ln.c);
+  items.sort((a,b)=> (S.cat[a.ln.c].ti||0) - (S.cat[b.ln.c].ti||0));
+  return { key: hold.k, f:c.f, ut:c.ut, uno:c.uno, unit:unitAt(c.f,c.ut,c.uno),
+           items, lap: hold.lap, held:true };
+}
 function renderPick(){
   RT = buildRoute();
   renderScopeBar();
@@ -698,7 +744,12 @@ function renderPick(){
     $('#go-all').onclick = ()=>{ S.ui.pf=[]; S.ui.po=[]; save(); renderPick(); };
     return;
   }
-  if(!rem.length){
+  // 다 체크했어도 "이 자리 완료" 전에는 그 자리에 머문다
+  let held = holdStop(HOLD);
+  if(held && !held.items.every(x=>x.ln.d) && !RT.route.some(s=>s.key===HOLD.k && s.lap===HOLD.lap)){
+    held = null;   // 범위가 바뀌어 사라진 자리
+  }
+  if(!rem.length && !held){
     const leftAll = remaining().length;
     box.innerHTML = '<div class="empty" style="padding-top:50px"><div style="font-size:46px;margin-bottom:8px">✓</div>'
       + '<b>'+(scopeOn()?'내 범위':sessLabel(sess)+' 피킹')+' 완료</b>'
@@ -711,8 +762,10 @@ function renderPick(){
     return;
   }
 
-  const st = RT.route[0];
-  const nextStops = RT.route.slice(1, 9);
+  // 붙잡은 자리가 있으면 그것을, 없으면 동선의 첫 자리를
+  const st = held || RT.route[0];
+  if(!st){ box.innerHTML=''; return; }
+  const nextStops = (held ? RT.route.filter(s=>!(s.key===st.key && s.lap===st.lap)) : RT.route.slice(1)).slice(0, 8);
   const prevUnit = null;
 
   const inPick = st.lap === 'P';
@@ -729,7 +782,8 @@ function renderPick(){
        + '이제 퀵만 남았습니다</div>';
   }
   h += '<div class="dest">';
-  h += '<div class="step">다음 위치 · 남은 매대 '+RT.route.length+'곳'
+  const stopN = RT.route.length + (held && !RT.route.some(x=>x.key===st.key && x.lap===st.lap) ? 1 : 0);
+  h += '<div class="step">'+(held?'지금 이 자리':'다음 위치')+' · 남은 매대 '+stopN+'곳'
      + (inPick && RT.route.length > pickStops ? ' <span style="opacity:.7">(픽업 '+pickStops+' + 퀵 '+(RT.route.length-pickStops)+')</span>' : '')
      + '</div>';
   if(st.unknown){
@@ -752,7 +806,12 @@ function renderPick(){
       + '<div class="qty">'+(x.ln.q||1)+'</div></div>';
   });
   h += '</div>';
-  h += '<button class="btn pri big" id="stop-done" style="margin-top:12px">이 자리 완료 · 다음으로</button>';
+  const ckN = st.items.filter(x=>x.ln.d).length, itN = st.items.length;
+  h += '<button class="btn pri big" id="stop-done" style="margin-top:12px">'
+     + (ckN === itN ? '다 담았습니다 · 다음으로'
+                    : '이 자리 완료 · 다음으로' + (ckN ? ' <span style="opacity:.75;font-size:14px">('+ckN+'/'+itN+' 체크)</span>' : ''))
+     + '</button>';
+  if(lastBatch()) h += '<button class="btn gh sm" id="undo" style="margin-top:8px">↩ 방금 집은 것 되돌리기</button>';
   h += '</div>';
 
   if(nextStops.length){
@@ -770,17 +829,22 @@ function renderPick(){
   }
   box.innerHTML = h;
 
+  // 상품을 누르면 체크만 된다. 자리는 "이 자리 완료"를 눌러야 넘어간다.
   $$('#pick-body .pk').forEach(el => el.onclick = ()=>{
     const o = S.orders.find(x=>x.id===el.dataset.o);
     const ln = o.l[+el.dataset.i];
-    ln.d = !ln.d; save(); renderPick();
+    if(ln.d){ ln.d = false; delete ln.t; }
+    else stampDone([{o, ln, i:+el.dataset.i}]);
+    HOLD = {k: st.key, lap: st.lap};   // 이 자리에 머문다
+    save(); renderPick();
   });
   $('#stop-done').onclick = ()=>{
-    st.items.forEach(x=>{ x.ln.d = true; });
+    stampDone(st.items.filter(x=>!x.ln.d));   // 안 누른 줄도 함께 집은 것으로
     if(st.f !== '?') S.cur.f = st.f;
-    save();
-    renderPick();
+    HOLD = null;                // 이제 다음 자리로
+    save(); renderPick();
   };
+  if($('#undo')) $('#undo').onclick = undoLast;
   if($('#rmap')) drawRoute($('#rmap'), st);
 }
 function drawRoute(svg, cur){
