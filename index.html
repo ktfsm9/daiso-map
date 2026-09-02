@@ -334,7 +334,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-03-m';
+const APP_VER = '2026-09-03-n';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 const TYPES = ['곤도라','벽면','창고','계산대','계단'];
 const LOC_TYPES = ['곤도라','벽면','창고','계산대'];
@@ -620,7 +620,7 @@ function renderPick(){
     const k = kindOf(x.o);
     h += '<div class="pk'+(x.ln.d?' done':'')+'" data-o="'+x.o.id+'" data-i="'+x.i+'">'
       + '<div class="bx">✓</div><div class="m">'
-      + '<div class="nm">'+(c.ti?'<span class="tierbadge">'+c.ti+'면</span>':'')+esc(c.n||x.ln.c)+'</div>'
+      + '<div class="nm">'+(c.ti?'<span class="tierbadge">-'+pad2(c.ti)+'</span>':'')+esc(c.n||x.ln.c)+'</div>'
       + '<div class="sub" style="display:flex;align-items:center;gap:6px">'
       + '<span class="kind '+k+'" style="cursor:default">'+KIND[k]+' '+esc(x.o.no)+'</span>'
       + '<span>'+esc(x.ln.c)+'</span></div></div>'
@@ -1393,7 +1393,7 @@ function drawReview(){
         + '<div class="mt" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px">'
         + '<span>'+esc(r.code)+'</span>'
         + '<button class="kind '+(bad?'P':'Q')+'" data-l="'+i+'" style="cursor:pointer'+(bad?';background:#FBE3E1;color:#B4453A':'')+'">'
-        + esc(r.f)+' '+(bad?'구역?':esc(r.ut))+' '+esc(r.uno||'???')+(r.ti?' '+r.ti+'면':'')+'</button>'
+        + esc(r.f)+' '+(bad?'구역?':esc(r.ut))+' '+esc(r.uno||'???')+(r.ti?'-'+pad2(r.ti):'')+'</button>'
         + (r.known?'':'<span style="color:var(--text-3)">새 코드</span>')
         + '</div>'
         + (bad ? '<div class="chips" style="margin-top:7px">'
@@ -1462,7 +1462,7 @@ function editShotLoc(i){
     + '<label class="fld"><span>구역</span><select id="sl-ut">'
     + LOC_TYPES.map(t=>'<option'+(t===r.ut?' selected':'')+'>'+t+'</option>').join('')+'</select></label></div>'
     + '<div class="row"><label class="fld"><span>번호</span><input id="sl-no" value="'+esc(r.uno)+'" inputmode="numeric"></label>'
-    + '<label class="fld"><span>면</span><input id="sl-ti" value="'+(r.ti||'')+'" inputmode="numeric"></label></div>'
+    + '<label class="fld"><span>끝번호</span><input id="sl-ti" value="'+(r.ti||'')+'" inputmode="numeric" placeholder="04"></label></div>'
     + '<button class="btn pri" id="sl-ok">확인</button>');
   $('#sl-ok').onclick = ()=>{
     r.name = ($('#sl-n').value||'').trim() || r.name;
@@ -1553,7 +1553,7 @@ function openCat(code, after){
     + '<label class="fld"><span>구역</span><select id="k-ut">'
     + LOC_TYPES.map(t=>'<option'+(t===c.ut?' selected':'')+'>'+t+'</option>').join('')+'</select></label></div>'
     + '<div class="row"><label class="fld"><span>번호</span><input id="k-uno" value="'+esc(c.uno)+'" inputmode="numeric" placeholder="041" list="ul"></label>'
-    + '<label class="fld"><span>면</span><input id="k-ti" value="'+(c.ti||'')+'" inputmode="numeric" placeholder="4"></label></div>'
+    + '<label class="fld"><span>끝번호</span><input id="k-ti" value="'+(c.ti||'')+'" inputmode="numeric" placeholder="04"></label></div>'
     + '<datalist id="ul"></datalist>'
     + '<div id="k-warn" class="muted" style="margin:-4px 0 12px;min-height:18px"></div>'
     + '<button class="btn pri" id="k-ok">'+(isNew?'등록':'저장')+'</button>'
@@ -1567,7 +1567,7 @@ function openCat(code, after){
     const u = us.find(x=>x.no===no);
     const w = $('#k-warn');
     if(!v) w.innerHTML = us.length ? (f+' '+t+': '+us.map(x=>x.no).join(', ')) : ('평면도에 '+f+' '+t+'가 없습니다');
-    else if(u) w.innerHTML = '<span style="color:var(--ok)">평면도에 있는 매대 · 최대 '+(u.tiers||1)+'면</span>';
+    else if(u) w.innerHTML = '<span style="color:var(--ok)">평면도에 있는 매대 · 끝번호 -01~-'+pad2(u.tiers||1)+'</span>';
     else w.innerHTML = '<span style="color:var(--no)">평면도에 없는 번호입니다. 저장은 되지만 동선 순서가 대략적입니다.</span>';
   };
   ['#k-f','#k-ut'].forEach(s=>$(s).onchange=refresh);
@@ -1812,7 +1812,7 @@ function openUnitInfo(id){
   let h='';
   for(let i=(u.tiers||1);i>=1;i--){
     const arr=byTier[i]||[];
-    h += '<div class="itm"><div class="txt"><div class="nm">'+i+'면</div><div class="mt">'
+    h += '<div class="itm"><div class="txt"><div class="nm">-'+pad2(i)+'</div><div class="mt">'
        + (arr.length?arr.map(k=>esc(S.cat[k].n)).join('<br>'):'—')+'</div></div></div>';
   }
   sheet('<h2>'+esc(u.f)+' '+esc(u.t)+' '+esc(u.t==='계단'?'':u.no)+'</h2>'
@@ -1839,7 +1839,7 @@ function openUnitEdit(id,isNew){
     + '<div class="row"><label class="fld"><span>가로 칸</span><div class="stepper"><button data-a="w-">&minus;</button><div class="v" id="e-w">'+u.w+'</div><button data-a="w+">+</button></div></label>'
     + '<label class="fld"><span>세로 칸</span><div class="stepper"><button data-a="h-">&minus;</button><div class="v" id="e-h">'+u.h+'</div><button data-a="h+">+</button></div></label></div>'
     + '<button class="btn gh sm" data-a="rot" style="margin-bottom:12px">↻ 눕히기 · 세우기</button>'
-    + (isStair||u.t==='계산대'?'':'<label class="fld"><span>면(단) 수 — 아래부터 1면</span><div class="stepper"><button data-a="t-">&minus;</button><div class="v" id="e-t">'+(u.tiers||1)+'</div><button data-a="t+">+</button></div></label>')
+    + (isStair||u.t==='계산대'?'':'<label class="fld"><span>단 수 — 아래부터 -01</span><div class="stepper"><button data-a="t-">&minus;</button><div class="v" id="e-t">'+(u.tiers||1)+'</div><button data-a="t+">+</button></div></label>')
     + '<div style="margin-top:14px"><button class="btn pri" id="e-ok">'+(isNew?'놓기 완료':'저장')+'</button>'
     + '<button class="btn dg" id="e-del" style="margin-top:9px">이 유닛 삭제</button></div>');
   $('#sheet-body').querySelectorAll('[data-no]').forEach(b=> b.onclick = ()=>{
