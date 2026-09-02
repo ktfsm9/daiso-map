@@ -844,8 +844,30 @@ function guessArea(f,no){
   });
   return hits.length===1 ? hits[0] : '';
 }
+/* 코드 줄 다음에 오는 한글 줄을 상품명으로 본다 (한글 인식을 켠 경우에만 의미 있음) */
+function namesByCode(text){
+  const out = {};
+  const lines = text.split('\n');
+  for(let i=0;i<lines.length;i++){
+    const m = lines[i].match(/\[\s*(\d{4,12})\s*\]/);
+    if(!m) continue;
+    for(let j=i; j<Math.min(i+4, lines.length); j++){
+      let s = lines[j].replace(/\[\s*\d{4,12}\s*\]/,'')
+                      .replace(/현재고\s*[:：]?\s*\d+/,'')
+                      .replace(/[\d,]+\s*원/,'')
+                      .replace(/\d+\s*[\/／]\s*\d+/g,'')
+                      .trim();
+      if(/^\[?\s*옵션/.test(s) || /위\s*치/.test(s)) continue;
+      if(!/[가-힣]{2,}/.test(s)) continue;
+      s = s.replace(/^[^\w가-힣(]+/,'').replace(/\s{2,}/g,' ').trim();
+      if(s.length>=2){ out[m[1]] = s; break; }
+    }
+  }
+  return out;
+}
 function parseShot(text){
   const marks = [];
+  const names = namesByCode(text);
   let m;
   const reCode = /\[\s*(\d{4,12})\s*\]/g;
   while((m = reCode.exec(text))) marks.push({i:m.index, t:'code', v:m[1]});
@@ -877,6 +899,8 @@ function parseShot(text){
     if(c && c.uno){
       r.name = c.n;
       if(!r.uno || r.guessed){ r.f=c.f; r.ut=c.ut; r.uno=c.uno; r.ti=r.ti||c.ti; }
+    } else if(names[r.code]){
+      r.name = names[r.code];
     }
     if(!r.f) r.f = S.floors[0];
     if(!r.ut) r.ut = '곤도라';
@@ -885,7 +909,8 @@ function parseShot(text){
   let no = '';
   let mm = text.match(/\(\s*S\s*[:：]\s*(\d{2,5})\s*\)/) || text.match(/주문서\s*[:：]?\s*(\d{3,5})/);
   if(mm) no = mm[1].padStart(4,'0');
-  if(!no){ mm = text.match(/R\s*1?0?\d{6,}(\d{4})/); if(mm) no = mm[1]; }
+  // 지시번호 R…2049 의 끝 세 자리가 주문서 번호다 (R10289260902049 → 0049)
+  if(!no){ mm = text.match(/R\s*\d{8,}(\d{3})(?!\d)/); if(mm) no = mm[1].padStart(4,'0'); }
   const kind = /매장\s*픽업/.test(text) ? 'P' : 'Q';
   return { rows, no, kind };
 }
@@ -902,17 +927,39 @@ async function loadTesseract(){
   TESS_LOADED = true;
 }
 
-$('#ord-shot').onclick = ()=> $('#shot-file').click();
+let shotLang = 'eng';
+$('#ord-shot').onclick = ()=>{
+  sheet('<h2>사진으로 담기</h2>'
+    + '<p class="sh-sub">지시상품내역 캡처를 고르면 상품코드와 위치를 읽어옵니다</p>'
+    + '<div class="card"><h3>읽기 방식</h3>'
+    + '<button class="btn gh" id="lg-e" style="margin-bottom:8px;text-align:left">빠르게 (권장)'
+    + '<small style="display:block;font-size:12px;font-weight:450;opacity:.7;margin-top:2px">'
+    + '상품코드·수량·위치만 읽습니다. 이름은 앱이 기억한 것을 씁니다.</small></button>'
+    + '<button class="btn gh" id="lg-k" style="text-align:left">상품명까지'
+    + '<small style="display:block;font-size:12px;font-weight:450;opacity:.7;margin-top:2px">'
+    + '한글도 읽습니다. 처음 한 번 파일을 받아야 하고 느립니다 (와이파이 권장)</small></button></div>'
+    + '<p class="muted" style="margin:0 0 14px">사진은 폰 안에서만 처리되고 어디로도 보내지 않습니다.<br>'
+    + '한 주문서가 두 장에 걸쳐 있으면 두 장을 같이 고르세요.</p>'
+    + '<button class="btn pri" id="lg-go">사진 고르기</button>');
+  const sync = ()=>{
+    $('#lg-e').style.cssText = 'margin-bottom:8px;text-align:left;'+(shotLang==='eng'?'background:var(--accent-soft);border-color:var(--accent);color:var(--accent-strong)':'');
+    $('#lg-k').style.cssText = 'text-align:left;'+(shotLang!=='eng'?'background:var(--accent-soft);border-color:var(--accent);color:var(--accent-strong)':'');
+  };
+  $('#lg-e').onclick = ()=>{ shotLang='eng'; sync(); };
+  $('#lg-k').onclick = ()=>{ shotLang='kor+eng'; sync(); };
+  sync();
+  $('#lg-go').onclick = ()=> $('#shot-file').click();
+};
 $('#shot-file').onchange = async ev=>{
   const files = Array.from(ev.target.files||[]);
   ev.target.value='';
   if(!files.length) return;
   sheet('<h2>사진 읽는 중</h2><p class="sh-sub">화면에서 상품코드와 위치를 찾고 있습니다</p>'
     + '<div class="prog" style="height:8px"><i id="ocr-bar" style="width:0%"></i></div>'
-    + '<p class="muted" id="ocr-msg" style="margin-top:10px">처음 한 번은 글자인식 파일을 받느라 조금 걸립니다 (와이파이 권장)</p>');
+    + '<p class="muted" id="ocr-msg" style="margin-top:10px">준비 중…</p>');
   try{
     await loadTesseract();
-    const worker = await Tesseract.createWorker('kor+eng', 1, {
+    const worker = await Tesseract.createWorker(shotLang, 1, {
       logger: p=>{
         if(!$('#ocr-bar')) return;
         const pct = Math.round((p.progress||0)*100);
