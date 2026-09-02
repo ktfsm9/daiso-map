@@ -1077,7 +1077,9 @@ function openUnitEdit(id,isNew){
   const miss = isStair ? [] : missingNos(u.f, u.t);
   sheet('<h2>'+esc(u.t)+(isStair?'':' '+esc(u.no))+'</h2><p class="sh-sub">'+esc(u.f)+'</p>'
     + (isStair?'' :
-        '<label class="fld"><span>매대번호 — 지시상품내역의 '+esc(u.f)+'-'+esc(u.t)+'-<b style="color:var(--accent)">041</b>-04 에서 041</span>'
+        '<label class="fld"><span>매대번호 — 지시상품내역 위치의 가운데 숫자<br>'
+        + '<span style="color:var(--text-2)">'+esc(u.f)+'-'+esc(u.t)+'-<b style="color:var(--accent)">'
+        + esc(u.no)+'</b>-04 &nbsp;에서 &nbsp;'+esc(u.no)+'</span></span>'
         + '<input id="e-no" value="'+esc(u.no)+'" inputmode="numeric" maxlength="6" class="big-in"></label>'
         + (miss.length
             ? '<div class="muted" style="margin:-4px 0 12px">주문에 나오는데 아직 안 놓은 번호 — 눌러서 넣기</div>'
