@@ -376,11 +376,13 @@ function curSession(){
 let sess = curSession();
 function sessLabel(s){ return s==='am' ? '오전' : '오후'; }
 function deadline(s){ return hm(S.times[s][1]); }
+function dur(m){
+  const h = Math.floor(m/60), r = m%60;
+  return ((h ? h+'시간 ' : '') + (r || !h ? r+'분' : '')).trim();
+}
 function leftText(){
   const d = deadline(sess) - nowMin();
-  if(d < 0) return '마감 ' + Math.abs(d) + '분 지남';
-  const h = Math.floor(d/60), m = d%60;
-  return '마감까지 ' + (h?h+'시간 ':'') + m + '분';
+  return d < 0 ? '마감 ' + dur(-d) + ' 지남' : '마감까지 ' + dur(d);
 }
 
 /* ==================== 주문 ==================== */
