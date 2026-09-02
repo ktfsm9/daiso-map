@@ -333,7 +333,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-03-d';
+const APP_VER = '2026-09-03-e';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 const TYPES = ['곤도라','벽면','창고','계산대','계단'];
 const LOC_TYPES = ['곤도라','벽면','창고','계산대'];
@@ -774,7 +774,7 @@ function renderOrders(){
   const nLn = Object.values(ORD_SEED).reduce((a,x)=>a+(Array.isArray(x)?x:x.l).length,0);
   const loadBtn = '<button class="btn gh" id="ord-seed" style="margin-top:6px">'
     + '올려주신 주문 '+nOrd+'건 불러오기<small style="display:block;font-size:12px;font-weight:450;opacity:.7;margin-top:2px">'
-    + '9/2 주문서 0049~0068 · '+nLn+'줄</small></button>';
+    + dateLabel(ORD_SEED_DATE)+' 주문서 0049~0068 · '+nLn+'줄</small></button>';
   if(!os.length){
     box.innerHTML = '<div class="empty"><b>'+sessLabel(sess)+' 주문이 없습니다</b>'
       + '우측 상단 + 주문서 를 눌러<br>주문서 번호(예: 0063)를 만드세요.</div>' + loadBtn;
@@ -832,15 +832,17 @@ function bindSeedBtn(){
   b.onclick = ()=>{
     let added=0, skipped=0;
     for(const no in ORD_SEED){
-      if(S.orders.some(o=>o.no===no && o.s===sess && o.d===curDate())){ skipped++; continue; }
+      if(S.orders.some(o=>o.no===no && o.s===sess && o.d===ORD_SEED_DATE)){ skipped++; continue; }
       const d = ORD_SEED[no];
       const lines = Array.isArray(d) ? d : d.l;          // 옛 형식도 받아준다
       const k = Array.isArray(d) ? 'Q' : (d.k || 'Q');
-      S.orders.push({ id:uid(), no, k, s:sess, d:curDate(), ts:Date.now(), l:lines.map(([c,q])=>({c,q})) });
+      S.orders.push({ id:uid(), no, k, s:sess, d:ORD_SEED_DATE, ts:Date.now(), l:lines.map(([c,q])=>({c,q})) });
       added++;
     }
+    if(added) S.ui.date = ORD_SEED_DATE;
     save(); renderOrders(); renderPick();
-    toast(added ? (sessLabel(sess)+'에 '+added+'건 불러왔습니다'+(skipped?' ('+skipped+'건은 이미 있음)':''))
+    toast(added ? (dateLabel(ORD_SEED_DATE)+' '+sessLabel(sess)+'에 '+added+'건 불러왔습니다'
+                   +(skipped?' ('+skipped+'건은 이미 있음)':''))
                 : '이미 모두 들어 있습니다');
   };
 }
@@ -1860,6 +1862,7 @@ const ORD_SEED = {
 "0067":{"k":"P","l":[["1029927",1]]},
 "0068":{"k":"Q","l":[["1011479",2],["1038327",1],["1043744",1],["1043750",1],["1050734",1],["1055168",1],["1061918",1],["1062239",2],["1067495",1]]}
 };
+const ORD_SEED_DATE = '2026-09-02';   // 올려주신 주문서가 실제로 들어온 날
 let seeded = 0;
 for(const k in SEED){
   if(S.cat[k]) continue;
