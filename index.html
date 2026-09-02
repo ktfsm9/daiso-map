@@ -333,7 +333,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-03-f';
+const APP_VER = '2026-09-03-g';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 const TYPES = ['곤도라','벽면','창고','계산대','계단'];
 const LOC_TYPES = ['곤도라','벽면','창고','계산대'];
@@ -1095,7 +1095,7 @@ function parseShot(text, korText){
   rows.forEach(r=>{
     const p = seen.get(r.code);
     if(!p){ seen.set(r.code, r); merged.push(r); return; }
-    p.q = Math.max(p.q, r.q);
+    if(r.qSet && !p.qSet){ p.q = r.q; p.qSet = true; } else p.q = Math.max(p.q, r.q);
     if(!p.uno && r.uno){ p.f=r.f; p.ut=r.ut; p.uno=r.uno; p.ti=r.ti; p.sure=r.sure; }
     if(!p.name && r.name) p.name = r.name;
   });
@@ -1191,9 +1191,17 @@ function drawReview(){
        + '글자가 작거나 흐리면 잘 안 읽힙니다.<br>화면을 확대해서 다시 찍어보세요.</div>';
   } else {
     const unsure = res.rows.filter(r=>r.on && !r.sure).length;
+    const noQty = res.rows.filter(r=>r.on && !r.qSet).length;
+    const totQ = res.rows.filter(r=>r.on).reduce((a,r)=>a+r.q,0);
+    h += '<div class="muted" style="margin-bottom:10px">'
+       + '읽은 줄 '+res.rows.length+' · 수량 합계 <b style="color:var(--text)">'+totQ+'개</b>'
+       + ' <span style="color:var(--text-3)">— 앱 화면과 맞는지 한 번 보세요</span></div>';
     if(unsure) h += '<div class="verdict no" style="margin-bottom:10px">'
       + '<b>구역을 확인해 주세요 · '+unsure+'줄</b><br>'
-      + '빠르게 읽기는 곤도라/벽면 같은 한글을 읽지 못합니다. 아래 빨간 줄에서 눌러 골라주세요.</div>';
+      + '한글(곤도라/벽면)을 못 읽은 줄입니다. 아래에서 눌러 골라주세요.</div>';
+    if(noQty) h += '<div class="verdict no" style="margin-bottom:10px;background:#FDF2E3;color:#8A5A12">'
+      + '<b>수량을 못 읽은 줄이 있습니다 · '+noQty+'줄</b><br>'
+      + '노란 수량 칸은 1로 넣어두었습니다. 앱 화면을 보고 맞춰주세요.</div>';
 
     h += '<div class="card" style="padding:6px 14px">' + res.rows.map((r,i)=>{
         const bad = !r.sure;
@@ -1216,8 +1224,10 @@ function drawReview(){
                  + (r.ut ? '<div class="mt" style="color:var(--text-3);margin-top:4px">'
                           + esc(r.ut)+' 로 짐작했습니다 · 맞으면 눌러 확정</div>' : '') : '')
         + '</div>'
-        + '<div class="stepper" style="flex:none;width:104px"><button data-q="'+i+':-">&minus;</button>'
-        + '<div class="v">'+r.q+'</div><button data-q="'+i+':+">+</button></div></div>';
+        + '<div class="stepper" style="flex:none;width:104px'
+        + (r.qSet?'':';border-color:#E0A93B;background:#FDF6E7')+'"><button data-q="'+i+':-">&minus;</button>'
+        + '<div class="v"'+(r.qSet?'':' style="color:#8A5A12"')+'>'+r.q+'</div>'
+        + '<button data-q="'+i+':+">+</button></div></div>';
       }).join('') + '</div>';
   }
   h += '<button class="btn pri" id="sh-ok"'+(n?'':' disabled')+'>'+n+'개 담기</button>'
@@ -1231,6 +1241,7 @@ function drawReview(){
     const [i,op] = b.dataset.q.split(':');
     const r = SHOT.rows[+i];
     r.q = Math.max(1, Math.min(99, r.q + (op==='+'?1:-1)));
+    r.qSet = true;
     drawReview();
   });
   $$('#sheet-body [data-l]').forEach(b=> b.onclick = ()=> editShotLoc(+b.dataset.l));
