@@ -24,6 +24,7 @@
   --store:#B07A2F; --store-bg:#F7EEDD;
   --cash:#3F7D58; --cash-bg:#E6F0E9;
   --stair:#6B6A65; --stair-bg:#EAE8E0;
+  --flat:#A85A7A; --flat-bg:#F6E7EE;
   --r:14px;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -80,6 +81,7 @@ label.fld > span{display:block;font-size:12.5px;color:var(--text-3);margin-botto
 .lb.f{background:var(--surface-3);color:var(--text)}
 .lb.곤도라{background:var(--gondola-bg);color:var(--gondola)}
 .lb.벽면{background:var(--wall-bg);color:var(--wall)}
+.lb.평대{background:var(--flat-bg);color:var(--flat)}
 .lb.창고{background:var(--store-bg);color:var(--store)}
 .lb.계산대{background:var(--cash-bg);color:var(--cash)}
 .lb.계단{background:var(--stair-bg);color:var(--stair)}
@@ -147,6 +149,7 @@ svg.plan{display:block;width:100%;background:var(--surface);touch-action:none}
 .tool.on[data-t="창고"]{background:var(--store);border-color:var(--store)}
 .tool.on[data-t="계산대"]{background:var(--cash);border-color:var(--cash)}
 .tool.on[data-t="계단"]{background:var(--stair);border-color:var(--stair)}
+.tool.on[data-t="평대"]{background:var(--flat);border-color:var(--flat)}
 .stepper{display:flex;align-items:center;border:1px solid var(--border-strong);border-radius:11px;overflow:hidden;background:var(--surface)}
 .stepper button{width:42px;height:44px;border:none;background:var(--surface);font-size:19px;color:var(--text-2);cursor:pointer;font-family:inherit;flex:none}
 .stepper button:active{background:var(--surface-2)}
@@ -248,6 +251,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
         <button class="tool on" data-t="선택">선택</button>
         <button class="tool" data-t="곤도라">곤도라</button>
         <button class="tool" data-t="벽면">벽면</button>
+        <button class="tool" data-t="평대">평대</button>
         <button class="tool" data-t="창고">창고</button>
         <button class="tool" data-t="계산대">계산대</button>
         <button class="tool" data-t="계단">계단</button>
@@ -354,15 +358,15 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-03-u';
+const APP_VER = '2026-09-03-v';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
-const TYPES = ['곤도라','벽면','창고','계산대','계단'];
-const LOC_TYPES = ['곤도라','벽면','창고','계산대'];
-const DEF = { w:{곤도라:1,벽면:1,창고:3,계산대:2,계단:2}, h:{곤도라:4,벽면:5,창고:3,계산대:2,계단:2},
-              tiers:{곤도라:5,벽면:5,창고:4,계산대:1,계단:1} };
+const TYPES = ['곤도라','벽면','평대','창고','계산대','계단'];
+const LOC_TYPES = ['곤도라','벽면','평대','창고','계산대'];
+const DEF = { w:{곤도라:1,벽면:1,평대:3,창고:3,계산대:2,계단:2}, h:{곤도라:4,벽면:5,평대:2,창고:3,계산대:2,계단:2},
+              tiers:{곤도라:5,벽면:5,평대:1,창고:4,계산대:1,계단:1} };
 const COLS = 48, ROWS = 36, CELL = 20;
-const FILL = {곤도라:'#EDEAF6',벽면:'#E4F0F6',창고:'#F7EEDD',계산대:'#E6F0E9',계단:'#EAE8E0'};
-const LINE = {곤도라:'#7C6BAF',벽면:'#2F7DA8',창고:'#B07A2F',계산대:'#3F7D58',계단:'#6B6A65'};
+const FILL = {곤도라:'#EDEAF6',벽면:'#E4F0F6',평대:'#F6E7EE',창고:'#F7EEDD',계산대:'#E6F0E9',계단:'#EAE8E0'};
+const LINE = {곤도라:'#7C6BAF',벽면:'#2F7DA8',평대:'#A85A7A',창고:'#B07A2F',계산대:'#3F7D58',계단:'#6B6A65'};
 
 /* ==================== 저장소 ==================== */
 let S = load();
@@ -426,12 +430,24 @@ const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&
 const pad3 = n => String(n).padStart(3,'0');
 const pad2 = n => String(n).padStart(2,'0');
 function unitAt(f,t,no){ return S.units.find(u=>u.f===f&&u.t===t&&u.no===no); }
+/* 같은 번호가 여러 조각일 수 있다 (꺾인 벽면, 나뉜 곤도라) */
+function unitsAt(f,t,no){ return S.units.filter(u=>u.f===f&&u.t===t&&u.no===no); }
+/* 여러 조각 중 기준점에서 가장 가까운 곳까지의 거리 */
+function distTo(units, p){
+  if(!units || !units.length) return null;
+  return Math.min.apply(null, units.map(u=> dist(ctr(u), p)));
+}
+function nearestUnit(units, p){
+  if(!units || !units.length) return null;
+  if(!p) return units[0];
+  return units.reduce((b,u)=> dist(ctr(u),p) < dist(ctr(b),p) ? u : b, units[0]);
+}
 function unitsOn(f){ return S.units.filter(u=>u.f===f); }
 function ctr(u){ return [(u.x+u.w/2)*CELL, (u.y+u.h/2)*CELL]; }
 function dist(a,b){ return Math.hypot(a[0]-b[0], a[1]-b[1]); }
 function locOf(code){ const c = S.cat[code]; return c && c.uno ? c : null; }
 function locStr(c){ return c && c.uno ? c.f+'-'+c.ut+'-'+c.uno+(c.ti?'-'+pad2(c.ti):'') : '위치 미지정'; }
-const ABBR = {곤도라:'곤', 벽면:'벽', 창고:'창', 계산대:'계', 계단:'단'};
+const ABBR = {곤도라:'곤', 벽면:'벽', 평대:'평', 창고:'창', 계산대:'계', 계단:'단'};
 function abbr(t){ return ABBR[t] || ''; }
 /* 주문 구분 — Q: 퀵(당일출고), P: 픽업(매장픽업) */
 const KIND = { Q:'퀵', P:'픽업' };
@@ -580,7 +596,8 @@ function routeFor(rem, from){
     const k = c.f+'|'+c.ut+'|'+c.uno;
     let st = stopMap.get(k);
     if(!st){
-      st = { key:k, f:c.f, ut:c.ut, uno:c.uno, unit:unitAt(c.f,c.ut,c.uno), items:[] };
+      const us = unitsAt(c.f,c.ut,c.uno);
+      st = { key:k, f:c.f, ut:c.ut, uno:c.uno, units:us, unit:us[0]||null, items:[] };
       stopMap.set(k, st);
     }
     st.items.push(x);
@@ -598,6 +615,8 @@ function routeFor(rem, from){
     const list = byF.get(f);
     const stair = S.units.find(u=>u.f===f && u.t==='계단');
     const start = entry || (stair ? ctr(stair) : (list[0].unit ? ctr(list[0].unit) : [0,0]));
+    // 같은 번호가 여러 조각이면 들어오는 쪽에서 가까운 조각을 쓴다 (꺾인 벽면 등)
+    list.forEach(st=>{ if(st.units && st.units.length > 1) st.unit = nearestUnit(st.units, start); });
     const back = fi < order.length-1 && stair ? ctr(stair) : null;
     const seq = orderStops(list, start, back);
     seq.forEach(s => route.push(s));
@@ -701,7 +720,8 @@ function holdStop(hold){
   if(!items.length) return null;
   const c = locOf(items[0].ln.c);
   items.sort((a,b)=> (S.cat[a.ln.c].ti||0) - (S.cat[b.ln.c].ti||0));
-  return { key: hold.k, f:c.f, ut:c.ut, uno:c.uno, unit:unitAt(c.f,c.ut,c.uno),
+  const us = unitsAt(c.f,c.ut,c.uno);
+  return { key: hold.k, f:c.f, ut:c.ut, uno:c.uno, units:us, unit:us[0]||null,
            items, lap: hold.lap, held:true };
 }
 function renderPick(){
@@ -1223,7 +1243,7 @@ function openCodeEntry(orderId){
        1 2                    ← 수량. 0/2 가 이렇게 깨져서 붙는다
        1,000원
    수량은 "위치 줄" 과 "가격 줄" 사이에 있고, 그 사이 마지막 숫자가 답이다. */
-const RE_LOC_KO = /(B\s*1|[\d.]+\s*F)\s*[-–—]\s*(곤도라|벽면|창고|계산대)\s*[-–—]\s*(\d{1,3})\s*[-–—]\s*(\d{1,2})(?!\d)/;
+const RE_LOC_KO = /(B\s*1|[\d.]+\s*F)\s*[-–—]\s*(곤도라|벽면|평대|창고|계산대)\s*[-–—]\s*(\d{1,3})\s*[-–—]\s*(\d{1,2})(?!\d)/;
 const RE_PRICE = /[\d,]{2,}\s*원/;
 /* 수량 "0 / 2" — 0 이 O·o·Q·D·() 로, / 가 | 로 깨져도 잡는다 */
 const RE_QTY = /(?:^|[^\dA-Za-z])[0OoQD()]\s*[\/／|]\s*(\d{1,3})(?!\d)/;
@@ -1834,17 +1854,17 @@ function placeUnit(cx,cy,w,h){
   w=Math.max(1,w||DEF.w[t]); h=Math.max(1,h||DEF.h[t]);
   const x=Math.max(0,Math.min(COLS-w,cx)), y=Math.max(0,Math.min(ROWS-h,cy));
   let no = (t==='계단' || !pendNo) ? nextNo(f,t) : pendNo;
-  if(S.units.some(u=>u.f===f&&u.t===t&&u.no===no)){
-    toast(t+' '+no+' 은 이미 있습니다. 번호를 바꿔주세요.');
-    paint(); return;
-  }
+  // 같은 번호가 여러 조각인 경우가 실제로 있다 (벽면이 꺾이거나 곤도라가 나뉜 자리).
+  // 막지 않고 알려만 주고, 동선은 가장 가까운 조각을 기준으로 잡는다.
+  const dup = S.units.filter(u=>u.f===f&&u.t===t&&u.no===no).length;
   const u={id:uid(),f,t,no,x,y,w,h,tiers:DEF.tiers[t]};
   S.units.push(u);
   // 카탈로그에 남은 번호가 있으면 그걸, 없으면 다음 숫자
   const m = missingNos(f,t);
   pendNo = m.length ? m[0] : bump(no);
   save(); selId=u.id; renderPlan();
-  toast(t+' '+no+' 놓음 · 톡 누르면 수정');
+  toast(dup ? t+' '+no+' 놓음 · 같은 번호 '+(dup+1)+'조각째'
+            : t+' '+no+' 놓음 · 톡 누르면 수정');
 }
 function openUnitInfo(id){
   const u=S.units.find(x=>x.id===id); if(!u) return;
@@ -1900,10 +1920,16 @@ function openUnitEdit(id,isNew){
       const v=($('#e-no').value||'').trim();
       const no=/^\d+$/.test(v)?pad3(parseInt(v,10)):v;
       if(!no){ toast('번호를 입력해 주세요'); return; }
-      if(S.units.some(x=>x!==u&&x.f===u.f&&x.t===u.t&&x.no===no)){ toast('같은 번호가 이미 있습니다'); return; }
+      // 같은 번호가 이미 있어도 둔다 (꺾인 벽면 등). 대신 알려준다.
+      const same = S.units.filter(x=>x!==u&&x.f===u.f&&x.t===u.t&&x.no===no).length;
       if(no!==u.no){
-        Object.keys(S.cat).forEach(k=>{ const c=S.cat[k]; if(c.f===u.f&&c.ut===u.t&&c.uno===u.no) c.uno=no; });
+        // 이 번호의 조각이 이것 하나뿐일 때만 등록된 상품 위치를 함께 옮긴다.
+        // 여러 조각 중 하나만 고치는 경우까지 옮기면 엉뚱한 상품이 딸려간다.
+        const alone = S.units.filter(x=>x.f===u.f&&x.t===u.t&&x.no===u.no).length === 1;
+        if(alone) Object.keys(S.cat).forEach(k=>{ const c=S.cat[k]; if(c.f===u.f&&c.ut===u.t&&c.uno===u.no) c.uno=no; });
         u.no=no;
+        if(same) toast(u.t+' '+no+' 은 이제 '+(same+1)+'조각입니다');
+        else if(!alone) toast('이 조각만 '+no+' 으로 바꿨습니다 (상품 위치는 그대로)');
       }
     }
     save(); closeSheet(); renderPlan(); renderPick();
