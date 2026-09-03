@@ -116,6 +116,16 @@ label.fld > span{display:block;font-size:12.5px;color:var(--text-3);margin-botto
   padding:7px 10px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums;white-space:nowrap}
 .upnext .u.f{border-color:var(--border-strong);background:var(--surface-2);font-weight:600}
 .upnext .u.pk{border-color:#9CC4E8;background:#EEF5FC}
+.th{flex:none;border-radius:9px;object-fit:contain;background:#fff;border:1px solid var(--border)}
+.th.ph{background:repeating-linear-gradient(135deg,#F4F2EC,#F4F2EC 6px,#EDEAE2 6px,#EDEAE2 12px)}
+.thwrap{flex:none;cursor:zoom-in;line-height:0}
+.itm .thwrap{margin-right:11px}
+.itm{display:flex;align-items:center}
+.imgview{position:fixed;inset:0;background:rgba(20,19,18,.92);z-index:90;display:flex;
+  flex-direction:column;align-items:center;justify-content:center;padding:20px}
+.imgview img{max-width:100%;max-height:72vh;border-radius:14px;background:#fff}
+.imgview .cap{color:#fff;font-size:15px;font-weight:600;margin-top:14px;text-align:center;line-height:1.45}
+.imgview .cap small{display:block;font-weight:400;opacity:.7;margin-top:3px}
 .upnext .lapedge{flex:none;align-self:center;font-size:11px;font-weight:700;color:var(--text-3);
   padding:0 4px;border-left:2px dashed var(--border-strong);margin-left:2px}
 .lapbar{border-radius:12px;padding:9px 13px;margin-bottom:10px;font-size:13px;line-height:1.45}
@@ -358,7 +368,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-03-v';
+const APP_VER = '2026-09-04-a';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 const TYPES = ['곤도라','벽면','평대','창고','계산대','계단'];
 const LOC_TYPES = ['곤도라','벽면','평대','창고','계산대'];
@@ -372,7 +382,7 @@ const LINE = {곤도라:'#7C6BAF',벽면:'#2F7DA8',평대:'#A85A7A',창고:'#B07
 let S = load();
 function blank(){
   return { v:1, floors:['B1','1F','1.5F','2F'], units:[], cat:{}, orders:[],
-           cur:{f:'1F'}, times:{am:['10:00','13:30'], pm:['15:00','18:30']},
+           cur:{f:'1F'}, img:{}, times:{am:['10:00','13:30'], pm:['15:00','18:30']},
            ui:{floor:'1F', date:today(), pf:[], po:[]} };
 }
 /* ---- 날짜 ---- */
@@ -446,6 +456,77 @@ function unitsOn(f){ return S.units.filter(u=>u.f===f); }
 function ctr(u){ return [(u.x+u.w/2)*CELL, (u.y+u.h/2)*CELL]; }
 function dist(a,b){ return Math.hypot(a[0]-b[0], a[1]-b[1]); }
 function locOf(code){ const c = S.cat[code]; return c && c.uno ? c : null; }
+/* ===== 상품 사진 =====
+   다이소몰의 상품 이미지를 품번으로 가져온다.
+   파일명에 품번이 들어 있어 "정확히 그 상품"인지 확인할 수 있다.
+   S.img[코드] = 주소 · '' = 찾았지만 없음 · undefined = 아직 안 찾아봄 */
+function imgOf(code){
+  const v = (S.img||{})[code];
+  return v || null;
+}
+const PD_URL = c => 'https://www.daisomall.co.kr/pd/pdr/SCR_PDR_0001?pdNo=' + encodeURIComponent(c);
+
+/* 처음 보는 품번이면 다이소몰에서 찾아 저장한다 (실패해도 조용히 넘어간다) */
+let imgQueue = [], imgBusy = false;
+function wantImg(code){
+  if(!code) return;
+  S.img = S.img || {};
+  if(code in S.img) return;
+  if(imgQueue.includes(code)) return;
+  imgQueue.push(code);
+  runImgQueue();
+}
+async function runImgQueue(){
+  if(imgBusy) return;
+  imgBusy = true;
+  while(imgQueue.length){
+    const c = imgQueue.shift();
+    if(c in S.img) continue;
+    let url = '';
+    try{
+      // 매장 밖 통신이 막혀 있으면 그냥 실패한다. 사진만 없을 뿐 피킹은 그대로 된다.
+      const r = await fetch('https://r.jina.ai/' + PD_URL(c), {signal: AbortSignal.timeout(9000)});
+      if(r.ok){
+        const t = await r.text();
+        const m = t.match(/https:\/\/cdn\.daisomall\.co\.kr\/file\/PD\/[^\s")'<>]+/g) || [];
+        const hit = m.find(u => new RegExp(c + '_\\d\\d_\\d\\d').test(u));
+        if(hit) url = hit;
+      }
+    }catch(e){}
+    S.img[c] = url;
+    save();
+    if(url) renderCat(), renderPick();
+  }
+  imgBusy = false;
+}
+
+/* 사진을 눌러 크게 보기 */
+function bindImgTap(scope){
+  $$(scope + ' [data-img]').forEach(el=>{
+    el.onclick = ev=>{
+      ev.stopPropagation();
+      const c = el.dataset.img, u = imgOf(c);
+      if(!u){ toast('사진을 아직 못 찾았습니다'); return; }
+      const cat = S.cat[c] || {};
+      const v = document.createElement('div');
+      v.className = 'imgview';
+      v.innerHTML = '<img src="'+esc(u)+'" alt="">'
+        + '<div class="cap">'+esc(cat.n||c)+'<small>'+esc(c)+' · '+esc(locStr(cat))+'</small></div>';
+      v.onclick = ()=> v.remove();
+      document.body.appendChild(v);
+    };
+  });
+}
+
+/* 사진 칸 — 없으면 빗금 타일 */
+function thumb(code, size, cls){
+  const u = imgOf(code);
+  const s = size || 44;
+  if(u) return '<img class="th '+(cls||'')+'" src="'+esc(u)+'" alt="" loading="lazy" '
+    + 'style="width:'+s+'px;height:'+s+'px" onerror="this.style.visibility=\'hidden\'">';
+  return '<div class="th ph '+(cls||'')+'" style="width:'+s+'px;height:'+s+'px"></div>';
+}
+
 function locStr(c){ return c && c.uno ? c.f+'-'+c.ut+'-'+c.uno+(c.ti?'-'+pad2(c.ti):'') : '위치 미지정'; }
 const ABBR = {곤도라:'곤', 벽면:'벽', 평대:'평', 창고:'창', 계산대:'계', 계단:'단'};
 function abbr(t){ return ABBR[t] || ''; }
@@ -817,8 +898,11 @@ function renderPick(){
   st.items.forEach(x=>{
     const c = S.cat[x.ln.c] || {};
     const k = kindOf(x.o);
+    wantImg(x.ln.c);
     h += '<div class="pk'+(x.ln.d?' done':'')+'" data-o="'+x.o.id+'" data-i="'+x.i+'">'
-      + '<div class="bx">✓</div><div class="m">'
+      + '<div class="bx">✓</div>'
+      + '<div class="thwrap" data-img="'+esc(x.ln.c)+'">'+thumb(x.ln.c, 46)+'</div>'
+      + '<div class="m">'
       + '<div class="nm">'+(c.ti?'<span class="tierbadge">-'+pad2(c.ti)+'</span>':'')+esc(c.n||x.ln.c)+'</div>'
       + '<div class="sub" style="display:flex;align-items:center;gap:6px">'
       + '<span class="kind '+k+'" style="cursor:default">'+KIND[k]+' '+esc(x.o.no)+'</span>'
@@ -849,6 +933,7 @@ function renderPick(){
   }
   box.innerHTML = h;
 
+  bindImgTap('#pick-body');
   // 상품을 누르면 체크만 된다. 자리는 "이 자리 완료"를 눌러야 넘어간다.
   $$('#pick-body .pk').forEach(el => el.onclick = ()=>{
     const o = S.orders.find(x=>x.id===el.dataset.o);
@@ -1593,10 +1678,14 @@ function renderCat(){
   });
   $('#cat-body').innerHTML = list.length
     ? '<div class="card">'+list.slice(0,300).map(x=>
-        '<div class="itm"><div class="txt" data-c="'+esc(x.k)+'"><div class="nm">'+esc(x.c.n||x.k)+'</div>'
+        '<div class="itm">'
+        + '<div class="thwrap" data-img="'+esc(x.k)+'">'+thumb(x.k, 42)+'</div>'
+        + '<div class="txt" data-c="'+esc(x.k)+'"><div class="nm">'+esc(x.c.n||x.k)+'</div>'
         + '<div class="mt">'+esc(x.k)+' · '+esc(locStr(x.c))+'</div></div></div>').join('')+'</div>'
     : '<div class="empty"><b>해당하는 상품이 없습니다</b></div>';
   $$('#cat-body [data-c]').forEach(b=> b.onclick = ()=> openCat(b.dataset.c));
+  bindImgTap('#cat-body');
+  list.slice(0,60).forEach(x=> wantImg(x.k));
 }
 $('#cq').oninput = renderCat;
 $('#cat-add').onclick = ()=> openCat('');
@@ -2165,6 +2254,7 @@ const ORD_SEED = {
 "0067":{"k":"P","l":[["1029927",1]]},
 "0068":{"k":"Q","l":[["1011479",2],["1038327",1],["1043744",1],["1043750",1],["1050734",1],["1055168",1],["1061918",1],["1062239",2],["1067495",1]]}
 };
+const IMG_SEED = {"41873":"https://cdn.daisomall.co.kr/file/PD/20260413/rxBdWwt5UWDxLArwpSv941873_00_00rxBdWwt5UWDxLArwpSv9.jpg","57387":"https://cdn.daisomall.co.kr/file/PD/20260413/N4QzgXVnHvvfaL2GrRtP57387_00_00N4QzgXVnHvvfaL2GrRtP.jpg","65376":"https://cdn.daisomall.co.kr/file/PD/20231221/bAxjRkrYdnEsps5Akczh65376_00_00bAxjRkrYdnEsps5Akczh.jpg","1001270":"https://cdn.daisomall.co.kr/file/PD/20260416/xxBzqs0eLtvCkzl24KiC1001270_00_00xxBzqs0eLtvCkzl24KiC.jpg","1029919":"https://cdn.daisomall.co.kr/file/PD/20260626/opLW3fP4DwdHFFtklkeV1029919_00_00opLW3fP4DwdHFFtklkeV.jpg","1036811":"https://cdn.daisomall.co.kr/file/PD/20231213/FJNbpd4mHpPW3rHhAfm31036811_00_00FJNbpd4mHpPW3rHhAfm3.jpg","1038506":"https://cdn.daisomall.co.kr/file/PD/20260402/Tx1u47KVefrLCGrd3Xs71038506_00_00Tx1u47KVefrLCGrd3Xs7.jpg","1045845":"https://cdn.daisomall.co.kr/file/PD/20251223/BanD0kOvHktNIImZT7za1045845_00_00BanD0kOvHktNIImZT7za.jpg","1045847":"https://cdn.daisomall.co.kr/file/PD/20251223/DrAnRdj7T19ZIpQL2PN41045847_00_00DrAnRdj7T19ZIpQL2PN4.jpg","1048910":"https://cdn.daisomall.co.kr/file/PD/20260402/YRlH5FQUMcby4lAlxt711048910_00_00YRlH5FQUMcby4lAlxt71.jpg","1049226":"https://cdn.daisomall.co.kr/file/PD/20240423/RIX3wvaMJubMVATJ9eDu1049226_00_00RIX3wvaMJubMVATJ9eDu.jpg","1049234":"https://cdn.daisomall.co.kr/file/PD/20240430/HCAHwX4ndDGqs9lkz0SA1049234_00_00HCAHwX4ndDGqs9lkz0SA.jpg","1049243":"https://cdn.daisomall.co.kr/file/PD/20240424/3kWpAYm9gGMqDllTFwGt1049243_00_003kWpAYm9gGMqDllTFwGt.jpg","1049244":"https://cdn.daisomall.co.kr/file/PD/20240424/q9kKcTG1I8ag6uEoSG4x1049244_00_00q9kKcTG1I8ag6uEoSG4x.jpg","1049246":"https://cdn.daisomall.co.kr/file/PD/20240424/zD9FrxwyQzLaV2YdjCLn1049246_00_00zD9FrxwyQzLaV2YdjCLn.jpg","1050182":"https://cdn.daisomall.co.kr/file/PD/20240313/DoHvNE7ty8URdjSpJhol1050182_00_00DoHvNE7ty8URdjSpJhol.jpg","1050826":"https://cdn.daisomall.co.kr/file/PD/20260708/BBurHgUNxfo3OF33jK2j1050826_00_00BBurHgUNxfo3OF33jK2j.jpg","1051097":"https://cdn.daisomall.co.kr/file/PD/20240530/wg13lxV4KpMXsRcWbvWF1051097_00_00wg13lxV4KpMXsRcWbvWF.jpg","1055936":"https://cdn.daisomall.co.kr/file/PD/20251208/aUy7jqiNu7ACktteEek41055936_00_00aUy7jqiNu7ACktteEek4.jpg","1056927":"https://cdn.daisomall.co.kr/file/PD/20241108/Btwr98VvaQImblrVCQiE1056927_00_00Btwr98VvaQImblrVCQiE.jpg","1059864":"https://cdn.daisomall.co.kr/file/PD/20250121/RVNIhP1muGYhEhRCajZs1059864_00_00RVNIhP1muGYhEhRCajZs.jpg","1061379":"https://cdn.daisomall.co.kr/file/PD/20260429/bGFIVFEuZgWQyFhqVlsV1061379_00_00bGFIVFEuZgWQyFhqVlsV.jpg","1062340":"https://cdn.daisomall.co.kr/file/PD/20251223/y4uLjhXgbcfYScHnkMe41062340_00_00y4uLjhXgbcfYScHnkMe4.jpg","1067495":"https://cdn.daisomall.co.kr/file/PD/20250929/ne9YHnao1D592hc9xmCp1067495_00_01ne9YHnao1D592hc9xmCp.jpg","1071783":"https://cdn.daisomall.co.kr/file/PD/20260331/Fo34EoBNQrpqFEAFrDTq1071783_00_00Fo34EoBNQrpqFEAFrDTq.jpg","1072233":"https://cdn.daisomall.co.kr/file/PD/20260902/diO4iiJa5RgLfuYrsHDi1072233_00_00diO4iiJa5RgLfuYrsHDi.jpg","1072778":"https://cdn.daisomall.co.kr/file/PD/20260309/MDFCMDraE8zEvcSva6Qu1072778_00_00MDFCMDraE8zEvcSva6Qu.jpg","1072854":"https://cdn.daisomall.co.kr/file/PD/20260629/eiAXitY0jkUhCrHxlbQE1072854_00_01eiAXitY0jkUhCrHxlbQE.jpg","1080422":"https://cdn.daisomall.co.kr/file/PD/20260504/12QeB3HlhmSIfXVC0ghr1080422_00_0012QeB3HlhmSIfXVC0ghr.jpg","1080425":"https://cdn.daisomall.co.kr/file/PD/20260504/oTWY9UuP6T3DW7ZpG0FM1080425_00_00oTWY9UuP6T3DW7ZpG0FM.jpg","591580521":"https://cdn.daisomall.co.kr/file/PD/20260522/0jgRGoNZEcwwrbTgrqVw591580521_00_000jgRGoNZEcwwrbTgrqVw.jpg","610910777":"https://cdn.daisomall.co.kr/file/PD/20251229/5qFLremik89lsUa72Yqy610910777_00_005qFLremik89lsUa72Yqy.jpg","57116":"https://cdn.daisomall.co.kr/file/PD/20231208/hjFAtAysaisyk6bNdyfu57116_00_00hjFAtAysaisyk6bNdyfu.jpg","61446":"https://cdn.daisomall.co.kr/file/PD/20231201/1lYjmJz3el3FhSjthzX161446_00_001lYjmJz3el3FhSjthzX1.jpg","69135":"https://cdn.daisomall.co.kr/file/PD/20260707/Ek93MwPYrU5HmsYFZZWU69135_00_00Ek93MwPYrU5HmsYFZZWU.jpg","73528":"https://cdn.daisomall.co.kr/file/PD/20240725/6IEy2bpSd0aRt4RGMyc473528_00_006IEy2bpSd0aRt4RGMyc4.jpg","1015655":"https://cdn.daisomall.co.kr/file/PD/20251223/D2jXhIGoWy74G9h7bhgd1015655_00_00D2jXhIGoWy74G9h7bhgd.jpg","1021058":"https://cdn.daisomall.co.kr/file/PD/20240125/tFpkMKb7DbKIRnRS2ap11021058_00_00tFpkMKb7DbKIRnRS2ap1.jpg","1021447":"https://cdn.daisomall.co.kr/file/PD/20231205/Pu8mt1exSzCLvrP5ErL01021447_00_00Pu8mt1exSzCLvrP5ErL0.jpg","1031913":"https://cdn.daisomall.co.kr/file/PD/20260402/v74T1h3lBf3ngRF6qO7J1031913_00_00v74T1h3lBf3ngRF6qO7J.jpg","1044554":"https://cdn.daisomall.co.kr/file/PD/20260402/zs4IuvvzXTUWWtsmvRi61044554_00_00zs4IuvvzXTUWWtsmvRi6.jpg","1045146":"https://cdn.daisomall.co.kr/file/PD/20250425/ATDev4SQOg7J1IEOb9j01045146_00_01ATDev4SQOg7J1IEOb9j0.jpg","1046253":"https://cdn.daisomall.co.kr/file/PD/20240115/LPKKtjdNrysf0xZHd5pR1046253_00_00LPKKtjdNrysf0xZHd5pR.jpg","1049097":"https://cdn.daisomall.co.kr/file/PD/20240909/rco7imqATXAv0wTFc3va1049097_00_00rco7imqATXAv0wTFc3va.jpg","1053490":"https://cdn.daisomall.co.kr/file/PD/20260721/KYODTtT8quwDOt23gldY1053490_00_00KYODTtT8quwDOt23gldY.jpg","1053494":"https://cdn.daisomall.co.kr/file/PD/20260721/Zat7ulVlxv48qza93XHZ1053494_00_00Zat7ulVlxv48qza93XHZ.jpg","1055167":"https://cdn.daisomall.co.kr/file/PD/20251216/0lOXklS1nx5HxNuMya731055167_00_000lOXklS1nx5HxNuMya73.jpg","1055178":"https://cdn.daisomall.co.kr/file/PD/20250311/gUFDnvFCSzibVCIJxlLp1055178_00_00gUFDnvFCSzibVCIJxlLp.jpg","1058038":"https://cdn.daisomall.co.kr/file/PD/20241028/IZVqFjKpVLx2gGWeqfpY1058038_00_00IZVqFjKpVLx2gGWeqfpY.jpg","1058760":"https://cdn.daisomall.co.kr/file/PD/20260721/Cc9eJ3IMEe6NrmxefnCt1058760_00_00Cc9eJ3IMEe6NrmxefnCt.jpg","1059139":"https://cdn.daisomall.co.kr/file/PD/20250107/CfxTk74q9y2oevfsJ34Y1059139_00_00CfxTk74q9y2oevfsJ34Y.jpg","1061529":"https://cdn.daisomall.co.kr/file/PD/20251231/FxVMJqI3Yb0oYpaik6KC1061529_00_00FxVMJqI3Yb0oYpaik6KC.jpg","1061879":"https://cdn.daisomall.co.kr/file/PD/20250213/iHaZBVvzwGtBg4NDof941061879_00_01iHaZBVvzwGtBg4NDof94.jpg","1062167":"https://cdn.daisomall.co.kr/file/PD/20251223/SWzX5Pxy8kLtkXXkIbNX1062167_00_00SWzX5Pxy8kLtkXXkIbNX.jpg","1062230":"https://cdn.daisomall.co.kr/file/PD/20251204/QYnirchUv6t8gD8X8bzP1062230_00_00QYnirchUv6t8gD8X8bzP.jpg","1067402":"https://cdn.daisomall.co.kr/file/PD/20251223/pM67ooRmEIKZnLaKFdgL1067402_00_00pM67ooRmEIKZnLaKFdgL.jpg","1067519":"https://cdn.daisomall.co.kr/file/PD/20251208/qOxitE4VeFUT41kM6qgC1067519_00_00qOxitE4VeFUT41kM6qgC.jpg","1069094":"https://cdn.daisomall.co.kr/file/PD/20260318/hSEEFNsp5EkHe7mTUZTi1069094_00_00hSEEFNsp5EkHe7mTUZTi.jpg","1074690":"https://cdn.daisomall.co.kr/file/PD/20260520/z5BuU1egQrGIYWFwnFs21074690_00_00z5BuU1egQrGIYWFwnFs2.jpg","1076107":"https://cdn.daisomall.co.kr/file/PD/20260519/fBpMqlGPSgNm1euGGmf41076107_00_01fBpMqlGPSgNm1euGGmf4.png","1076130":"https://cdn.daisomall.co.kr/file/PD/20260403/pgIVqdshtRjWQbPXm9Vf1076130_00_01pgIVqdshtRjWQbPXm9Vf.jpg","947020016":"https://cdn.daisomall.co.kr/file/PD/20260702/8QAbds6uAf6sIQpe1Lcy947020016_00_008QAbds6uAf6sIQpe1Lcy.jpg","987253277":"https://cdn.daisomall.co.kr/file/PD/20260422/eIhoZ9JSC5jbp33vSbZX987253277_00_01eIhoZ9JSC5jbp33vSbZX.jpg","44527":"https://cdn.daisomall.co.kr/file/PD/20240327/06jqNEZiVo4zuBwQDIQj44527_00_0006jqNEZiVo4zuBwQDIQj.jpg","47944":"https://cdn.daisomall.co.kr/file/PD/20231208/FLqy6r2htapsHbjniO9t47944_00_00FLqy6r2htapsHbjniO9t.jpg","69036":"https://cdn.daisomall.co.kr/file/PD/20240611/9GxinIxkyqP17PEDVULV69036_00_009GxinIxkyqP17PEDVULV.jpg","1003642":"https://cdn.daisomall.co.kr/file/PD/20260402/4CUgfnzR2L52MkXjZgDm1003642_00_004CUgfnzR2L52MkXjZgDm.jpg","1011479":"https://cdn.daisomall.co.kr/file/PD/20240624/gqNAjx0214PIg2KL3vX01011479_00_00gqNAjx0214PIg2KL3vX0.jpg","1016619":"https://cdn.daisomall.co.kr/file/PD/20231213/e8rXvrkcHuGrF0d1US0d1016619_00_04e8rXvrkcHuGrF0d1US0d.jpg","1021059":"https://cdn.daisomall.co.kr/file/PD/20231201/wksi0NEMLLwD8QkOnskH1021059_00_00wksi0NEMLLwD8QkOnskH.jpg","1029927":"https://cdn.daisomall.co.kr/file/PD/20240708/yFlti6wW9tSua109Z5dB1029927_00_04yFlti6wW9tSua109Z5dB.jpg","1038327":"https://cdn.daisomall.co.kr/file/PD/20241022/3HRTqkHGuCUECB3KKfzU1038327_00_003HRTqkHGuCUECB3KKfzU.jpg","1043744":"https://cdn.daisomall.co.kr/file/PD/20260402/8mmk9q8BjMjelyXwWn2h1043744_00_008mmk9q8BjMjelyXwWn2h.jpg","1043750":"https://cdn.daisomall.co.kr/file/PD/20260625/wNiDxzo8ShccablwpIdK1043750_00_00wNiDxzo8ShccablwpIdK.jpg","1050734":"https://cdn.daisomall.co.kr/file/PD/20240905/pfA7BdigxQOiHIkyAqRn1050734_00_00pfA7BdigxQOiHIkyAqRn.jpg","1055168":"https://cdn.daisomall.co.kr/file/PD/20251218/d8NqIeDpOKYbm6p44Fzf1055168_00_00d8NqIeDpOKYbm6p44Fzf.jpg","1057230":"https://cdn.daisomall.co.kr/file/PD/20251223/cmtn0fDvwgGGGUxtb6TQ1057230_00_00cmtn0fDvwgGGGUxtb6TQ.jpg","1060602":"https://cdn.daisomall.co.kr/file/PD/20260713/SWiHZDkbrcVy8WGKga4l1060602_00_00SWiHZDkbrcVy8WGKga4l.jpg","1060603":"https://cdn.daisomall.co.kr/file/PD/20250226/8LhyYSacuygv5ehYPyZz1060603_00_008LhyYSacuygv5ehYPyZz.jpg","1060644":"https://cdn.daisomall.co.kr/file/PD/20251231/wfPC4Z9JWor0Iq7HY3ZD1060644_00_00wfPC4Z9JWor0Iq7HY3ZD.jpg","1061918":"https://cdn.daisomall.co.kr/file/PD/20251216/lcOc1IVBETy66kefZV8g1061918_00_00lcOc1IVBETy66kefZV8g.jpg","1062239":"https://cdn.daisomall.co.kr/file/PD/20260721/FrcFgMRQoR7tJltOyFNJ1062239_00_00FrcFgMRQoR7tJltOyFNJ.jpg","1064243":"https://cdn.daisomall.co.kr/file/PD/20250331/QYN6QR29PJOo2lMW0ogz1064243_00_01QYN6QR29PJOo2lMW0ogz.jpg","1064417":"https://cdn.daisomall.co.kr/file/PD/20250331/umjUv5Wx0YymaayxPJGK1064417_00_01umjUv5Wx0YymaayxPJGK.jpg","1065368":"https://cdn.daisomall.co.kr/file/PD/20260402/3qECv6tGAHxayE8HL9Po1065368_00_003qECv6tGAHxayE8HL9Po.jpg","1066900":"https://cdn.daisomall.co.kr/file/PD/20251231/ojMS2FqMYgJyAvgrYVeJ1066900_00_00ojMS2FqMYgJyAvgrYVeJ.jpg","1067498":"https://cdn.daisomall.co.kr/file/PD/20251226/wj1JQs4g8q0tBuz4c7jF1067498_00_01wj1JQs4g8q0tBuz4c7jF.jpg","1068973":"https://cdn.daisomall.co.kr/file/PD/20260629/jFGG0Wx5ptthmpAQ9XAJ1068973_00_00jFGG0Wx5ptthmpAQ9XAJ.jpg","1072556":"https://cdn.daisomall.co.kr/file/PD/20251216/GVOFVwWP4ZjptCQYqeJW1072556_00_00GVOFVwWP4ZjptCQYqeJW.jpg","1072635":"https://cdn.daisomall.co.kr/file/PD/20260520/ydhPDoOWN5iVQAIFcbvy1072635_00_00ydhPDoOWN5iVQAIFcbvy.jpg","1072858":"https://cdn.daisomall.co.kr/file/PD/20260629/Ue078FrziI4j8Tutte5O1072858_00_01Ue078FrziI4j8Tutte5O.jpg","111774760":"https://cdn.daisomall.co.kr/file/PD/20250326/GctuhKRL3lPOJNHhNdlr111774760_00_00GctuhKRL3lPOJNHhNdlr.jpg","600000269":"https://cdn.daisomall.co.kr/file/PD/20260504/LdyaPluhRl2HSeYjB2pX600000269_00_01LdyaPluhRl2HSeYjB2pX.png","646710535":"https://cdn.daisomall.co.kr/file/PD/20260219/x1OvoCPM1uScoe2cvefe646710535_00_00x1OvoCPM1uScoe2cvefe.jpg"};
 const ORD_SEED_DATE = '2026-09-02';   // 올려주신 주문서가 실제로 들어온 날
 let seeded = 0;
 for(const k in SEED){
@@ -2173,7 +2263,15 @@ for(const k in SEED){
   S.cat[k] = { n:v[0], f:v[1], ut:v[2], uno:v[3], ti:v[4] };
   seeded++;
 }
-if(seeded) save();
+// 사진 주소도 없는 것만 채운다
+S.img = S.img || {};
+let imgSeeded = 0;
+for(const k in IMG_SEED){
+  if(S.img[k]) continue;
+  S.img[k] = IMG_SEED[k];
+  imgSeeded++;
+}
+if(seeded || imgSeeded) save();
 
 if(!S.floors.includes(S.ui.floor)) S.ui.floor = S.floors[0];
 if(!S.floors.includes(S.cur.f)) S.cur.f = S.floors[0];
