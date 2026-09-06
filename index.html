@@ -374,7 +374,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-05-b';
+const APP_VER = '2026-09-07-a';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -534,7 +534,8 @@ const IMG_LANES = 3;
 function wantImg(code){
   if(!code) return;
   S.img = S.img || {};
-  if(S.img[code]) return;                 // 이미 있음
+  if(code in S.img) return;               // 이미 있거나, 없다고 판정된 것
+                                          // (다시 찾으려면 설정 탭의 버튼을 쓴다)
   if(imgTried[code] >= 2) return;         // 이번 접속에서 두 번 실패하면 그만
   if(imgQueue.includes(code)) return;
   imgQueue.push(code);
@@ -567,16 +568,22 @@ async function fetchImg(c){
   }
   imgRunning--;
   pumpImg();
-  if(!imgRunning && !imgQueue.length && imgDone){ imgDone = 0; renderSet(); }
+  if($('#v-set').classList.contains('on')) renderSet();
+  if(!imgRunning && !imgQueue.length && imgDone){
+    toast('사진 ' + imgDone + '개를 가져왔습니다'); imgDone = 0; renderSet();
+  }
 }
 
-/* 사진 없는 상품을 한꺼번에 가져온다 (설정 탭) */
+/* 사진이 없는 상품을 한꺼번에 가져온다 (설정 탭).
+   "사진 없음"으로 찍힌 것도 함께 다시 찾는다 —
+   그 판정이 앱의 오래된 버그였을 수 있기 때문이다. */
 function fetchAllImgs(){
-  const miss = Object.keys(S.cat).filter(c=> !S.img[c] && S.img[c] !== '');
+  const miss = Object.keys(S.cat).filter(c=> !S.img[c]);
   if(!miss.length){ toast('모든 상품에 사진이 있습니다'); return; }
   imgTried = {};
-  miss.forEach(c=>{ if(!imgQueue.includes(c)) imgQueue.push(c); });
-  pumpImg();
+  miss.forEach(c=>{ delete S.img[c]; if(!imgQueue.includes(c)) imgQueue.push(c); });
+  save();
+  pumpImg(); renderSet();
   toast(miss.length + '개를 가져오는 중입니다 · 와이파이에서 기다려 주세요');
 }
 async function runImgQueue(){
@@ -2139,7 +2146,7 @@ function renderSet(){
   const miss    = codes.length - withImg - none;
   $('#img-stat').innerHTML = withImg + ' / ' + codes.length + '개에 사진이 있습니다'
     + (miss ? '<br><span style="color:var(--no)">아직 못 가져온 상품 ' + miss + '개</span>' : '')
-    + (none ? '<br>다이소몰에 사진이 없는 상품 ' + none + '개' : '')
+    + (none ? '<br>다이소몰에서 못 찾은 상품 ' + none + '개' : '')
     + (imgQueue.length || imgRunning ? '<br>가져오는 중… ' + (imgQueue.length + imgRunning) + '개 남음' : '');
   $('#img-all').onclick = fetchAllImgs;
 
@@ -2377,6 +2384,15 @@ for(const k in SEED){
 }
 // 사진 주소도 없는 것만 채운다
 S.img = S.img || {};
+/* -a 버전은 주소 형식을 하나만 봐서 실제로 사진이 있는데도
+   "사진 없음"으로 찍었다. 그 판정을 한 번 지워 다시 찾게 한다. */
+if((S.imgv||0) < 2){
+  let cleared = 0;
+  for(const k in S.img) if(S.img[k] === ''){ delete S.img[k]; cleared++; }
+  S.imgv = 2;
+  if(cleared) setTimeout(()=> toast('사진 없음으로 잘못 찍힌 ' + cleared + '개를 다시 찾습니다',
+    '지금 가져오기', ()=>{ go('v-set'); fetchAllImgs(); }), 1200);
+}
 let imgSeeded = 0;
 for(const k in IMG_SEED){
   if(S.img[k]) continue;
