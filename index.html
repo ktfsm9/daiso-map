@@ -318,6 +318,8 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
       <input type="file" id="imp" accept=".json,application/json" style="display:none">
       <input type="file" id="photo-file" accept="image/*" style="display:none">
       <div id="plan-bak" style="margin-top:12px"></div>
+      <div id="diag" class="muted" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);
+        font-size:12px;line-height:1.6"></div>
     </div>
     <div class="card">
       <h3>상품 사진</h3>
@@ -376,11 +378,13 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-07-c';
+const APP_VER = '2026-09-07-d';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
 const PLANBAK = 'daiso_plan_bak';
+/* 실수로 지워도 되돌릴 수 있게, 여태 가장 많이 그렸던 상태도 따로 남긴다 */
+const PLANMAX = 'daiso_plan_max';
 const TYPES = ['곤도라','벽면','평대','창고','계산대','계단'];
 const LOC_TYPES = ['곤도라','벽면','평대','창고','계산대'];
 const DEF = { w:{곤도라:1,벽면:1,평대:3,창고:3,계산대:2,계단:2}, h:{곤도라:4,벽면:5,평대:2,창고:3,계산대:2,계단:2},
@@ -411,13 +415,17 @@ function dateLabel(s){
   return (d.getMonth()+1)+'/'+d.getDate()+'('+DOW[d.getDay()]+')'+tag;
 }
 /* 평면도 백업 읽기 */
-function readPlanBak(){
+function readBak(key){
   try{
-    const b = JSON.parse(localStorage.getItem(PLANBAK));
+    const b = JSON.parse(localStorage.getItem(key));
     if(b && Array.isArray(b.units) && b.units.length) return b;
   }catch(e){}
   return null;
 }
+/* 자동 복구는 "최신 예비본"만 쓴다.
+   일부러 다 지운 경우까지 최대치로 되살리면 곤란하기 때문이다.
+   최대치는 설정 탭의 버튼으로만 꺼낸다. */
+function readPlanBak(){ return readBak(PLANBAK); }
 /* let 은 호이스팅되지 않는다. load() 가 위에서 먼저 도므로 var 여야 한다.
    그리고 = 0 을 붙이면 load() 가 넣은 값을 도로 지운다. 선언만 한다. */
 var planRestored;
@@ -476,8 +484,12 @@ function writeNow(){
   try{
     localStorage.setItem(KEY, JSON.stringify(S));
     // 평면도는 따로 한 벌 더 (본 저장소가 깨져도 남는다)
-    if(S.units && S.units.length)
-      localStorage.setItem(PLANBAK, JSON.stringify({t:Date.now(), floors:S.floors, units:S.units}));
+    if(S.units && S.units.length){
+      const snap = JSON.stringify({t:Date.now(), floors:S.floors, units:S.units});
+      localStorage.setItem(PLANBAK, snap);
+      const mx = readBak(PLANMAX);
+      if(!mx || S.units.length >= mx.units.length) localStorage.setItem(PLANMAX, snap);
+    }
     saveFail = 0;
   }catch(e){
     saveFail++;
@@ -2322,22 +2334,37 @@ function renderSet(){
     $('#nl-x').onclick = closeSheet;
   };
 
+  // 이 브라우저에 뭐가 들어 있는지 (브라우저마다 저장소가 다르다)
+  const fmt = t => { if(!t) return '?'; const d=new Date(t);
+    return (d.getMonth()+1)+'/'+d.getDate()+' '+z2(d.getHours())+':'+z2(d.getMinutes()); };
+  let raw = 0; try{ raw = (localStorage.getItem(KEY)||'').length; }catch(e){}
+  const bk = readBak(PLANBAK), mx = readBak(PLANMAX);
+  $('#diag').innerHTML = '<b>이 브라우저의 저장 상태</b><br>'
+    + '상품 ' + codes.length + ' · 유닛 ' + S.units.length + ' · 주문 ' + S.orders.length + '건<br>'
+    + '평면도 예비본 ' + (bk ? bk.units.length + '개 (' + fmt(bk.t) + ')' : '없음')
+    + ' · 최대치 ' + (mx ? mx.units.length + '개 (' + fmt(mx.t) + ')' : '없음') + '<br>'
+    + '저장 크기 ' + Math.round(raw/1024) + 'KB · 기기 저장 사진 ' + Object.keys(THUMB).length + '장<br>'
+    + '<span style="opacity:.75">브라우저마다 저장소가 따로입니다. 숫자가 다르면 다른 브라우저로 연 것입니다.</span>';
+
   // 평면도 백업
-  const bak = readPlanBak();
   const pb = $('#plan-bak');
-  if(bak && (!S.units.length || bak.units.length !== S.units.length)){
-    const d = new Date(bak.t||0);
-    pb.innerHTML = '<div class="verdict" style="margin-bottom:9px">'
-      + '<b>평면도 예비본이 있습니다 · ' + bak.units.length + '개</b><br>'
-      + (bak.t ? (d.getMonth()+1)+'/'+d.getDate()+' '+z2(d.getHours())+':'+z2(d.getMinutes())+' 저장' : '')
-      + ' · 지금 화면엔 ' + S.units.length + '개</div>'
-      + '<button class="btn gh" id="plan-restore">예비본으로 평면도 되살리기</button>';
-    $('#plan-restore').onclick = ()=>{
-      if(!confirm('지금 평면도(' + S.units.length + '개)를 예비본(' + bak.units.length + '개)으로 바꿀까요?')) return;
-      S.units = bak.units; if(bak.floors) S.floors = bak.floors;
-      writeNow(); renderAll(); toast(bak.units.length + '개를 되살렸습니다');
+  const cand = [];
+  if(bk && bk.units.length !== S.units.length) cand.push({k:'최신 예비본', b:bk, id:'pr1'});
+  if(mx && mx.units.length !== S.units.length && (!bk || mx.units.length !== bk.units.length))
+    cand.push({k:'가장 많이 그렸던 것', b:mx, id:'pr2'});
+  pb.innerHTML = cand.length
+    ? '<div class="verdict" style="margin-bottom:9px"><b>평면도 예비본이 있습니다</b><br>'
+      + '지금 화면엔 ' + S.units.length + '개</div>'
+      + cand.map(c=> '<button class="btn gh" id="' + c.id + '" style="margin-bottom:9px">'
+          + c.k + ' 되살리기 · ' + c.b.units.length + '개 (' + fmt(c.b.t) + ')</button>').join('')
+    : '';
+  cand.forEach(c=>{
+    $('#'+c.id).onclick = ()=>{
+      if(!confirm('지금 평면도(' + S.units.length + '개)를 ' + c.b.units.length + '개로 바꿀까요?')) return;
+      S.units = c.b.units; if(c.b.floors) S.floors = c.b.floors;
+      writeNow(); renderAll(); toast(c.b.units.length + '개를 되살렸습니다');
     };
-  } else pb.innerHTML = '';
+  });
   $('#t-am1').value=S.times.am[0]; $('#t-am2').value=S.times.am[1];
   $('#t-pm1').value=S.times.pm[0]; $('#t-pm2').value=S.times.pm[1];
   $('#floor-mgr').innerHTML = S.floors.map(f=>
