@@ -316,6 +316,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
       <button class="btn gh" id="exp" style="margin-bottom:9px">백업 파일 내려받기</button>
       <button class="btn gh" id="imp-btn">백업 파일 불러오기</button>
       <input type="file" id="imp" accept=".json,application/json" style="display:none">
+      <input type="file" id="photo-file" accept="image/*" style="display:none">
       <div id="plan-bak" style="margin-top:12px"></div>
     </div>
     <div class="card">
@@ -375,7 +376,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-07-b';
+const APP_VER = '2026-09-07-c';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -519,9 +520,15 @@ function locOf(code){ const c = S.cat[code]; return c && c.uno ? c : null; }
    다이소몰의 상품 이미지를 품번으로 가져온다.
    파일명에 품번이 들어 있어 "정확히 그 상품"인지 확인할 수 있다.
    S.img[코드] = 주소 · '' = 찾았지만 없음 · undefined = 아직 안 찾아봄 */
+const LOCAL = 'LOCAL';   // 폰에서 직접 넣은 사진 (주소가 아니라 기기 안에만 있다)
 function imgOf(code){
   const v = (S.img||{})[code];
   return v || null;
+}
+/* 크게 볼 때 쓸 주소 — 직접 넣은 사진이면 기기 저장본을 쓴다 */
+function bigImg(code){
+  const v = imgOf(code);
+  return (v && v !== LOCAL) ? v : (THUMB[code] || null);
 }
 const PD_URL = c => 'https://www.daisomall.co.kr/pd/pdr/SCR_PDR_0001?pdNo=' + encodeURIComponent(c);
 
@@ -612,13 +619,63 @@ async function runImgQueue(){
   imgBusy = false;
 }
 
+/* 폰에 있는 사진을 골라 그 상품에 붙인다.
+   성인인증 상품처럼 다이소몰에서 못 가져오는 것들을 위해서다. */
+let pickFor = null;
+function pickPhoto(code){
+  pickFor = code;
+  $('#photo-file').click();
+}
+$('#photo-file').onchange = ev=>{
+  const f = (ev.target.files||[])[0];
+  ev.target.value = '';
+  const code = pickFor; pickFor = null;
+  if(!f || !code) return;
+  const fr = new FileReader();
+  fr.onload = ()=>{
+    const i = new Image();
+    i.onload = ()=>{
+      try{
+        const w = 256, h = Math.max(1, Math.round(w * i.naturalHeight / i.naturalWidth));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(i, 0, 0, w, h);
+        const d = c.toDataURL('image/jpeg', 0.78);
+        THUMB[code] = d; idbPut(code, d);
+        S.img[code] = LOCAL; save();
+        renderCat(); renderPick(); renderSet();
+        toast('사진을 넣었습니다');
+      }catch(e){ toast('사진을 처리하지 못했습니다'); }
+    };
+    i.onerror = ()=> toast('사진을 읽지 못했습니다');
+    i.src = fr.result;
+  };
+  fr.onerror = ()=> toast('사진을 읽지 못했습니다');
+  fr.readAsDataURL(f);
+};
+
+/* 사진이 없는 칸을 눌렀을 때 */
+function noPhotoSheet(code){
+  const c = S.cat[code] || {};
+  sheet('<h2>' + esc(c.n || code) + '</h2>'
+    + '<p class="sh-sub">' + esc(code) + ' · ' + esc(locStr(c)) + '<br>아직 사진이 없습니다</p>'
+    + '<button class="btn pri" id="np-pick">폰에서 사진 고르기</button>'
+    + '<button class="btn gh" id="np-find" style="margin-top:9px">다이소몰에서 다시 찾기</button>'
+    + '<div class="muted" style="margin-top:10px">성인인증이 필요한 상품(가스류 등)은 '
+    + '다이소몰에서 가져올 수 없습니다. 매장상품찾기 화면을 캡처해서 넣으시면 됩니다.</div>'
+    + '<button class="btn gh" id="np-x" style="margin-top:12px">닫기</button>');
+  $('#np-pick').onclick = ()=>{ closeSheet(); pickPhoto(code); };
+  $('#np-find').onclick = ()=>{ closeSheet(); delete S.img[code]; save(); imgTried={}; wantImg(code); toast('다시 찾는 중'); };
+  $('#np-x').onclick = closeSheet;
+}
+
 /* 사진을 눌러 크게 보기 */
 function bindImgTap(scope){
   $$(scope + ' [data-img]').forEach(el=>{
     el.onclick = ev=>{
       ev.stopPropagation();
-      const c = el.dataset.img, u = imgOf(c) || THUMB[c];
-      if(!u){ toast('사진을 아직 못 찾았습니다'); return; }
+      const c = el.dataset.img, u = bigImg(c);
+      if(!u){ noPhotoSheet(c); return; }
       const cat = S.cat[c] || {};
       const v = document.createElement('div');
       v.className = 'imgview';
@@ -676,7 +733,9 @@ async function idbClear(){
 
 /* 사진을 받아 256px 로 줄여 저장한다 */
 function cacheThumb(code){
-  const u = thumbUrl(imgOf(code));
+  const v = imgOf(code);
+  if(v === LOCAL) return Promise.resolve(false);      // 직접 넣은 것은 그대로 둔다
+  const u = thumbUrl(v);
   if(!u || THUMB[code]) return Promise.resolve(false);
   return new Promise(res=>{
     const i = new Image();
@@ -701,7 +760,7 @@ function cacheThumb(code){
 let cacheBusy = false;
 async function cacheAllThumbs(){
   if(cacheBusy){ toast('이미 저장 중입니다'); return; }
-  const todo = Object.keys(S.cat).filter(c=> imgOf(c) && !THUMB[c]);
+  const todo = Object.keys(S.cat).filter(c=> imgOf(c) && imgOf(c) !== LOCAL && !THUMB[c]);
   if(!todo.length){ toast('사진이 모두 기기에 저장되어 있습니다'); return; }
   cacheBusy = true;
   toast(todo.length + '개를 기기에 저장합니다');
@@ -2228,11 +2287,13 @@ function renderSet(){
 
   // 상품 사진 현황
   const withImg = codes.filter(k=>S.img && S.img[k]).length;
+  const localN  = codes.filter(k=>S.img && S.img[k]===LOCAL).length;
   const noneL   = codes.filter(k=>S.img && S.img[k]==='');
   const saved   = codes.filter(k=>THUMB[k]).length;
   const miss    = codes.length - withImg - noneL.length;
   $('#img-stat').innerHTML = withImg + ' / ' + codes.length + '개에 사진이 있습니다'
     + '<br>그중 <b>' + saved + '개</b>는 기기에 저장되어 통신 없이 뜹니다'
+    + (localN ? '<br>직접 넣은 사진 ' + localN + '개' : '')
     + (miss ? '<br><span style="color:var(--no)">아직 못 가져온 상품 ' + miss + '개</span>' : '')
     + (noneL.length ? '<br><a href="#" id="none-list" style="color:var(--accent-strong)">다이소몰에서 못 찾은 상품 '
         + noneL.length + '개 보기</a>' : '')
@@ -2248,13 +2309,15 @@ function renderSet(){
       + '<div class="card">' + noneL.map(k=>
           '<div class="itm"><div class="txt"><div class="nm">' + esc(S.cat[k].n||k) + '</div>'
           + '<div class="mt">' + esc(k) + ' · ' + esc(locStr(S.cat[k])) + '</div></div>'
-          + '<button class="act" data-rt="' + esc(k) + '">다시</button></div>').join('') + '</div>'
+          + '<button class="act" data-pp="' + esc(k) + '">사진 넣기</button>'
+          + '<button class="act" data-rt="' + esc(k) + '" style="margin-left:6px">다시</button></div>').join('') + '</div>'
       + '<button class="btn pri" id="nl-all">모두 다시 찾기</button>'
       + '<button class="btn gh" id="nl-x" style="margin-top:9px">닫기</button>');
     $$('#sheet-body [data-rt]').forEach(b=> b.onclick = ()=>{
       const k = b.dataset.rt; delete S.img[k]; save(); imgTried = {}; wantImg(k);
       toast(k + ' 다시 찾는 중'); closeSheet();
     });
+    $$('#sheet-body [data-pp]').forEach(b=> b.onclick = ()=>{ const k=b.dataset.pp; closeSheet(); pickPhoto(k); });
     $('#nl-all').onclick = ()=>{ closeSheet(); fetchAllImgs(); };
     $('#nl-x').onclick = closeSheet;
   };
