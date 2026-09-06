@@ -321,6 +321,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
     <div class="card">
       <h3>상품 사진</h3>
       <p class="muted" id="img-stat" style="margin:0 0 12px"></p>
+      <button class="btn gh" id="img-save" style="margin-bottom:9px">사진을 기기에 저장</button>
       <button class="btn gh" id="img-all">사진 없는 상품 가져오기</button>
     </div>
     <div class="card">
@@ -374,7 +375,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-07-a';
+const APP_VER = '2026-09-07-b';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -556,6 +557,7 @@ async function fetchImg(c){
       const hit = m.find(u => new RegExp(c + '_\\d\\d_\\d\\d').test(u));
       if(hit){
         S.img[c] = hit; save(); imgDone++;
+        cacheThumb(c);
         if($('#v-cat').classList.contains('on')) renderCat();
         if($('#v-pick').classList.contains('on')) renderPick();
       } else {
@@ -615,7 +617,7 @@ function bindImgTap(scope){
   $$(scope + ' [data-img]').forEach(el=>{
     el.onclick = ev=>{
       ev.stopPropagation();
-      const c = el.dataset.img, u = imgOf(c);
+      const c = el.dataset.img, u = imgOf(c) || THUMB[c];
       if(!u){ toast('사진을 아직 못 찾았습니다'); return; }
       const cat = S.cat[c] || {};
       const v = document.createElement('div');
@@ -629,6 +631,90 @@ function bindImgTap(scope){
 }
 
 /* 사진 칸 — 없으면 빗금 타일 */
+/* ===== 사진을 기기에 저장 =====
+   주소만 갖고 있으면 매번 다이소몰에서 받아와야 한다.
+   작게 줄여(256px) 기기에 넣어두면 통신 없이도 바로 뜬다.
+   199개 × 약 10KB = 2MB 남짓이라 부담이 없다. */
+const IDB_NAME = 'daiso_img', IDB_ST = 't';
+let THUMB = {};            // 코드 → 기기에 저장된 그림
+let idbH = null;
+
+function idbOpen(){
+  return new Promise(res=>{
+    if(idbH) return res(idbH);
+    try{
+      const r = indexedDB.open(IDB_NAME, 1);
+      r.onupgradeneeded = ()=>{ try{ r.result.createObjectStore(IDB_ST); }catch(e){} };
+      r.onsuccess = ()=>{ idbH = r.result; res(idbH); };
+      r.onerror = ()=> res(null);
+    }catch(e){ res(null); }
+  });
+}
+async function idbLoadAll(){
+  const db = await idbOpen(); if(!db) return;
+  await new Promise(res=>{
+    try{
+      const tx = db.transaction(IDB_ST, 'readonly').objectStore(IDB_ST);
+      const kq = tx.getAllKeys(), vq = tx.getAll();
+      let k=null, v=null;
+      const done = ()=>{ if(k&&v){ k.forEach((key,i)=> THUMB[key] = v[i]); res(); } };
+      kq.onsuccess = ()=>{ k = kq.result; done(); };
+      vq.onsuccess = ()=>{ v = vq.result; done(); };
+      kq.onerror = vq.onerror = ()=> res();
+    }catch(e){ res(); }
+  });
+}
+async function idbPut(code, data){
+  const db = await idbOpen(); if(!db) return;
+  try{ db.transaction(IDB_ST, 'readwrite').objectStore(IDB_ST).put(data, code); }catch(e){}
+}
+async function idbClear(){
+  const db = await idbOpen(); if(!db) return;
+  try{ db.transaction(IDB_ST, 'readwrite').objectStore(IDB_ST).clear(); }catch(e){}
+  THUMB = {};
+}
+
+/* 사진을 받아 256px 로 줄여 저장한다 */
+function cacheThumb(code){
+  const u = thumbUrl(imgOf(code));
+  if(!u || THUMB[code]) return Promise.resolve(false);
+  return new Promise(res=>{
+    const i = new Image();
+    i.crossOrigin = 'anonymous';
+    i.onload = ()=>{
+      try{
+        const w = 256, h = Math.max(1, Math.round(w * i.naturalHeight / i.naturalWidth));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(i, 0, 0, w, h);
+        const d = c.toDataURL('image/jpeg', 0.75);
+        THUMB[code] = d; idbPut(code, d); res(true);
+      }catch(e){ res(false); }
+    };
+    i.onerror = ()=> res(false);
+    i.src = u;
+    setTimeout(()=>res(false), 12000);
+  });
+}
+
+/* 사진 있는 상품을 모두 기기에 저장 */
+let cacheBusy = false;
+async function cacheAllThumbs(){
+  if(cacheBusy){ toast('이미 저장 중입니다'); return; }
+  const todo = Object.keys(S.cat).filter(c=> imgOf(c) && !THUMB[c]);
+  if(!todo.length){ toast('사진이 모두 기기에 저장되어 있습니다'); return; }
+  cacheBusy = true;
+  toast(todo.length + '개를 기기에 저장합니다');
+  let n = 0;
+  for(let i=0; i<todo.length; i+=4){
+    await Promise.all(todo.slice(i, i+4).map(async c=>{ if(await cacheThumb(c)) n++; }));
+    if($('#v-set').classList.contains('on')) renderSet();
+  }
+  cacheBusy = false;
+  renderSet(); renderCat(); renderPick();
+  toast(n + '개를 기기에 저장했습니다');
+}
+
 /* 목록에는 850px 썸네일을 쓴다. 원본은 1125x1500 이라 LTE 에서 무겁다. */
 function thumbUrl(u){
   if(!u) return u;
@@ -636,7 +722,7 @@ function thumbUrl(u){
   return u.replace('/file/PD/', '/file/resize/PD/').replace(/(\/\d{8}\/)/, '$1thumbnail/850/');
 }
 function thumb(code, size, cls){
-  const u = thumbUrl(imgOf(code));
+  const u = THUMB[code] || thumbUrl(imgOf(code));   // 기기에 있으면 그걸 먼저
   const s = size || 44;
   if(u) return '<img class="th '+(cls||'')+'" src="'+esc(u)+'" alt="" loading="lazy" '
     + 'style="width:'+s+'px;height:'+s+'px" onerror="this.style.visibility=\'hidden\'">';
@@ -2142,13 +2228,36 @@ function renderSet(){
 
   // 상품 사진 현황
   const withImg = codes.filter(k=>S.img && S.img[k]).length;
-  const none    = codes.filter(k=>S.img && S.img[k]==='').length;
-  const miss    = codes.length - withImg - none;
+  const noneL   = codes.filter(k=>S.img && S.img[k]==='');
+  const saved   = codes.filter(k=>THUMB[k]).length;
+  const miss    = codes.length - withImg - noneL.length;
   $('#img-stat').innerHTML = withImg + ' / ' + codes.length + '개에 사진이 있습니다'
+    + '<br>그중 <b>' + saved + '개</b>는 기기에 저장되어 통신 없이 뜹니다'
     + (miss ? '<br><span style="color:var(--no)">아직 못 가져온 상품 ' + miss + '개</span>' : '')
-    + (none ? '<br>다이소몰에서 못 찾은 상품 ' + none + '개' : '')
-    + (imgQueue.length || imgRunning ? '<br>가져오는 중… ' + (imgQueue.length + imgRunning) + '개 남음' : '');
+    + (noneL.length ? '<br><a href="#" id="none-list" style="color:var(--accent-strong)">다이소몰에서 못 찾은 상품 '
+        + noneL.length + '개 보기</a>' : '')
+    + (imgQueue.length || imgRunning ? '<br>가져오는 중… ' + (imgQueue.length + imgRunning) + '개 남음' : '')
+    + (cacheBusy ? '<br>기기에 저장하는 중…' : '');
   $('#img-all').onclick = fetchAllImgs;
+  $('#img-save').onclick = cacheAllThumbs;
+  if($('#none-list')) $('#none-list').onclick = ev=>{
+    ev.preventDefault();
+    sheet('<h2>다이소몰에서 못 찾은 상품</h2>'
+      + '<p class="sh-sub">품번으로 검색해도 상품 페이지가 안 나온 것들입니다. '
+      + '매장 전용이거나 단종된 상품일 수 있습니다.</p>'
+      + '<div class="card">' + noneL.map(k=>
+          '<div class="itm"><div class="txt"><div class="nm">' + esc(S.cat[k].n||k) + '</div>'
+          + '<div class="mt">' + esc(k) + ' · ' + esc(locStr(S.cat[k])) + '</div></div>'
+          + '<button class="act" data-rt="' + esc(k) + '">다시</button></div>').join('') + '</div>'
+      + '<button class="btn pri" id="nl-all">모두 다시 찾기</button>'
+      + '<button class="btn gh" id="nl-x" style="margin-top:9px">닫기</button>');
+    $$('#sheet-body [data-rt]').forEach(b=> b.onclick = ()=>{
+      const k = b.dataset.rt; delete S.img[k]; save(); imgTried = {}; wantImg(k);
+      toast(k + ' 다시 찾는 중'); closeSheet();
+    });
+    $('#nl-all').onclick = ()=>{ closeSheet(); fetchAllImgs(); };
+    $('#nl-x').onclick = closeSheet;
+  };
 
   // 평면도 백업
   const bak = readPlanBak();
@@ -2404,6 +2513,9 @@ if(seeded || imgSeeded) save();
 if(planRestored){
   setTimeout(()=> toast('평면도 ' + planRestored + '개를 예비본에서 되살렸습니다', '확인', ()=>{}), 800);
 }
+// 기기에 저장해 둔 사진을 먼저 읽어들인다
+idbLoadAll().then(()=>{ renderCat(); renderPick(); renderSet(); });
+
 if(!S.floors.includes(S.ui.floor)) S.ui.floor = S.floors[0];
 if(!S.floors.includes(S.cur.f)) S.cur.f = S.floors[0];
 fit();
