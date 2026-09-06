@@ -316,6 +316,12 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
       <button class="btn gh" id="exp" style="margin-bottom:9px">백업 파일 내려받기</button>
       <button class="btn gh" id="imp-btn">백업 파일 불러오기</button>
       <input type="file" id="imp" accept=".json,application/json" style="display:none">
+      <div id="plan-bak" style="margin-top:12px"></div>
+    </div>
+    <div class="card">
+      <h3>상품 사진</h3>
+      <p class="muted" id="img-stat" style="margin:0 0 12px"></p>
+      <button class="btn gh" id="img-all">사진 없는 상품 가져오기</button>
     </div>
     <div class="card">
       <h3>지난 주문 정리</h3>
@@ -368,8 +374,11 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-04-a';
+const APP_VER = '2026-09-05-a';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
+/* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
+   본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
+const PLANBAK = 'daiso_plan_bak';
 const TYPES = ['곤도라','벽면','평대','창고','계산대','계단'];
 const LOC_TYPES = ['곤도라','벽면','평대','창고','계산대'];
 const DEF = { w:{곤도라:1,벽면:1,평대:3,창고:3,계산대:2,계단:2}, h:{곤도라:4,벽면:5,평대:2,창고:3,계산대:2,계단:2},
@@ -399,8 +408,41 @@ function dateLabel(s){
   const tag = s===t ? ' 오늘' : s===shiftDate(t,-1) ? ' 어제' : s===shiftDate(t,1) ? ' 내일' : '';
   return (d.getMonth()+1)+'/'+d.getDate()+'('+DOW[d.getDay()]+')'+tag;
 }
+/* 평면도 백업 읽기 */
+function readPlanBak(){
+  try{
+    const b = JSON.parse(localStorage.getItem(PLANBAK));
+    if(b && Array.isArray(b.units) && b.units.length) return b;
+  }catch(e){}
+  return null;
+}
+/* let 은 호이스팅되지 않는다. load() 가 위에서 먼저 도므로 var 여야 한다.
+   그리고 = 0 을 붙이면 load() 가 넣은 값을 도로 지운다. 선언만 한다. */
+var planRestored;
+
 function load(){
-  try{ const o = JSON.parse(localStorage.getItem(KEY)); if(o && o.cat) return fill(o); }catch(e){}
+  try{
+    const o = JSON.parse(localStorage.getItem(KEY));
+    if(o && o.cat){
+      const f = fill(o);
+      // 본 저장소는 멀쩡한데 평면도만 비었다면 백업에서 되살린다
+      if((!f.units || !f.units.length)){
+        const b = readPlanBak();
+        if(b){ f.units = b.units; if(b.floors) f.floors = b.floors; planRestored = b.units.length; }
+      }
+      return f;
+    }
+  }catch(e){}
+  // 본 저장소를 못 읽었다 — 평면도만이라도 살린다
+  try{
+    const b = readPlanBak();
+    if(b){
+      const n = blank();
+      n.units = b.units; if(b.floors) n.floors = b.floors;
+      planRestored = b.units.length;
+      return n;
+    }
+  }catch(e){}
   // 이전 버전(매대 지도)에서 평면도와 상품을 물려받는다
   try{
     const old = JSON.parse(localStorage.getItem(OLDKEY));
@@ -426,11 +468,27 @@ function fill(o){
   return o;
 }
 let saveT=null;
+let saveFail = 0;
+function writeNow(){
+  clearTimeout(saveT);
+  try{
+    localStorage.setItem(KEY, JSON.stringify(S));
+    // 평면도는 따로 한 벌 더 (본 저장소가 깨져도 남는다)
+    if(S.units && S.units.length)
+      localStorage.setItem(PLANBAK, JSON.stringify({t:Date.now(), floors:S.floors, units:S.units}));
+    saveFail = 0;
+  }catch(e){
+    saveFail++;
+    if(saveFail === 1) toast('저장이 안 됩니다. 설정에서 백업을 받아주세요.', '설정 열기', ()=>go('v-set'));
+  }
+}
 function save(){
   clearTimeout(saveT);
-  saveT = setTimeout(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(S)); }
-    catch(e){ toast('저장 공간이 부족합니다. 백업 후 정리해 주세요.'); } }, 60);
+  saveT = setTimeout(writeNow, 60);
 }
+/* 앱을 벗어날 때 밀린 저장을 즉시 끝낸다 (폰이 탭을 재우면 타이머가 죽는다) */
+addEventListener('pagehide', writeNow);
+addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'hidden') writeNow(); });
 const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 
 /* ==================== 유틸 ==================== */
@@ -466,15 +524,59 @@ function imgOf(code){
 }
 const PD_URL = c => 'https://www.daisomall.co.kr/pd/pdr/SCR_PDR_0001?pdNo=' + encodeURIComponent(c);
 
-/* 처음 보는 품번이면 다이소몰에서 찾아 저장한다 (실패해도 조용히 넘어간다) */
-let imgQueue = [], imgBusy = false;
+/* 처음 보는 품번이면 다이소몰에서 찾아 저장한다.
+   다이소몰은 CORS 를 막아 두어 브라우저에서 직접 못 읽으므로 읽기 도우미를 거친다.
+   실패는 기록하지 않는다 — 통신이 잠깐 끊겼을 뿐인데 영영 안 찾게 되면 안 된다. */
+const PD_READ = u => 'https://r.jina.ai/' + u;
+let imgQueue = [], imgRunning = 0, imgTried = {}, imgDone = 0;
+const IMG_LANES = 3;
+
 function wantImg(code){
   if(!code) return;
   S.img = S.img || {};
-  if(code in S.img) return;
+  if(S.img[code]) return;                 // 이미 있음
+  if(imgTried[code] >= 2) return;         // 이번 접속에서 두 번 실패하면 그만
   if(imgQueue.includes(code)) return;
   imgQueue.push(code);
-  runImgQueue();
+  pumpImg();
+}
+function pumpImg(){
+  while(imgRunning < IMG_LANES && imgQueue.length) fetchImg(imgQueue.shift());
+}
+async function fetchImg(c){
+  imgRunning++;
+  try{
+    const r = await fetch(PD_READ(PD_URL(c)), {signal: AbortSignal.timeout(15000)});
+    if(r.ok){
+      const t = await r.text();
+      const m = t.match(/https:\/\/cdn\.daisomall\.co\.kr\/file\/PD\/[^\s")'<>\\]+/g) || [];
+      // 파일 이름에 품번이 들어 있어야 그 상품이 맞다
+      const hit = m.find(u => new RegExp(c + '_\\d\\d_\\d\\d').test(u));
+      if(hit){
+        S.img[c] = hit; save(); imgDone++;
+        if($('#v-cat').classList.contains('on')) renderCat();
+        if($('#v-pick').classList.contains('on')) renderPick();
+      } else {
+        S.img[c] = '';   // 페이지는 봤는데 사진이 없다 — 다시 안 찾는다
+        save();
+      }
+    } else imgTried[c] = (imgTried[c]||0) + 1;
+  }catch(e){
+    imgTried[c] = (imgTried[c]||0) + 1;
+  }
+  imgRunning--;
+  pumpImg();
+  if(!imgRunning && !imgQueue.length && imgDone){ imgDone = 0; renderSet(); }
+}
+
+/* 사진 없는 상품을 한꺼번에 가져온다 (설정 탭) */
+function fetchAllImgs(){
+  const miss = Object.keys(S.cat).filter(c=> !S.img[c] && S.img[c] !== '');
+  if(!miss.length){ toast('모든 상품에 사진이 있습니다'); return; }
+  imgTried = {};
+  miss.forEach(c=>{ if(!imgQueue.includes(c)) imgQueue.push(c); });
+  pumpImg();
+  toast(miss.length + '개를 가져오는 중입니다 · 와이파이에서 기다려 주세요');
 }
 async function runImgQueue(){
   if(imgBusy) return;
@@ -1160,13 +1262,10 @@ function renderOrders(){
   const box = $('#ord-body');
   const nOrd = Object.keys(ORD_SEED).length;
   const nLn = Object.values(ORD_SEED).reduce((a,x)=>a+(Array.isArray(x)?x:x.l).length,0);
-  const loadBtn = '<button class="btn gh" id="ord-seed" style="margin-top:6px">'
-    + '올려주신 주문 '+nOrd+'건 불러오기<small style="display:block;font-size:12px;font-weight:450;opacity:.7;margin-top:2px">'
-    + dateLabel(ORD_SEED_DATE)+' 주문서 0049~0068 · '+nLn+'줄</small></button>';
+  const loadBtn = '';
   if(!os.length){
     box.innerHTML = '<div class="empty"><b>'+sessLabel(sess)+' 주문이 없습니다</b>'
       + '우측 상단 + 주문서 를 눌러<br>주문서 번호(예: 0063)를 만드세요.</div>' + loadBtn;
-    bindSeedBtn();
     return;
   }
   box.innerHTML = os.slice().reverse().map(o=>{
@@ -1190,7 +1289,6 @@ function renderOrders(){
         }).join('') : '<p class="muted" style="margin:0">아직 담긴 상품이 없습니다.</p>')
       + '</div>';
   }).join('') + loadBtn;
-  bindSeedBtn();
   $$('#ord-body [data-k]').forEach(b=> b.onclick = ()=>{
     const o = S.orders.find(x=>x.id===b.dataset.k);
     o.k = kindOf(o)==='Q' ? 'P' : 'Q';
@@ -1213,26 +1311,6 @@ function renderOrders(){
     const o = S.orders.find(x=>x.id===id);
     openCat(o.l[+i].c);
   });
-}
-function bindSeedBtn(){
-  const b = $('#ord-seed');
-  if(!b) return;
-  b.onclick = ()=>{
-    let added=0, skipped=0;
-    for(const no in ORD_SEED){
-      if(S.orders.some(o=>o.no===no && o.s===sess && o.d===ORD_SEED_DATE)){ skipped++; continue; }
-      const d = ORD_SEED[no];
-      const lines = Array.isArray(d) ? d : d.l;          // 옛 형식도 받아준다
-      const k = Array.isArray(d) ? 'Q' : (d.k || 'Q');
-      S.orders.push({ id:uid(), no, k, s:sess, d:ORD_SEED_DATE, ts:Date.now(), l:lines.map(([c,q])=>({c,q})) });
-      added++;
-    }
-    if(added) S.ui.date = ORD_SEED_DATE;
-    save(); renderOrders(); renderPick();
-    toast(added ? (dateLabel(ORD_SEED_DATE)+' '+sessLabel(sess)+'에 '+added+'건 불러왔습니다'
-                   +(skipped?' ('+skipped+'건은 이미 있음)':''))
-                : '이미 모두 들어 있습니다');
-  };
 }
 $('#ord-new').onclick = ()=>{
   let kind = 'Q';
@@ -2047,6 +2125,33 @@ function renderSet(){
   $('#set-stat').innerHTML = h;
   $('#set-ver').textContent = APP_VER;
   $('#set-reload').onclick = hardReload;
+
+  // 상품 사진 현황
+  const withImg = codes.filter(k=>S.img && S.img[k]).length;
+  const none    = codes.filter(k=>S.img && S.img[k]==='').length;
+  const miss    = codes.length - withImg - none;
+  $('#img-stat').innerHTML = withImg + ' / ' + codes.length + '개에 사진이 있습니다'
+    + (miss ? '<br><span style="color:var(--no)">아직 못 가져온 상품 ' + miss + '개</span>' : '')
+    + (none ? '<br>다이소몰에 사진이 없는 상품 ' + none + '개' : '')
+    + (imgQueue.length || imgRunning ? '<br>가져오는 중… ' + (imgQueue.length + imgRunning) + '개 남음' : '');
+  $('#img-all').onclick = fetchAllImgs;
+
+  // 평면도 백업
+  const bak = readPlanBak();
+  const pb = $('#plan-bak');
+  if(bak && (!S.units.length || bak.units.length !== S.units.length)){
+    const d = new Date(bak.t||0);
+    pb.innerHTML = '<div class="verdict" style="margin-bottom:9px">'
+      + '<b>평면도 예비본이 있습니다 · ' + bak.units.length + '개</b><br>'
+      + (bak.t ? (d.getMonth()+1)+'/'+d.getDate()+' '+z2(d.getHours())+':'+z2(d.getMinutes())+' 저장' : '')
+      + ' · 지금 화면엔 ' + S.units.length + '개</div>'
+      + '<button class="btn gh" id="plan-restore">예비본으로 평면도 되살리기</button>';
+    $('#plan-restore').onclick = ()=>{
+      if(!confirm('지금 평면도(' + S.units.length + '개)를 예비본(' + bak.units.length + '개)으로 바꿀까요?')) return;
+      S.units = bak.units; if(bak.floors) S.floors = bak.floors;
+      writeNow(); renderAll(); toast(bak.units.length + '개를 되살렸습니다');
+    };
+  } else pb.innerHTML = '';
   $('#t-am1').value=S.times.am[0]; $('#t-am2').value=S.times.am[1];
   $('#t-pm1').value=S.times.pm[0]; $('#t-pm2').value=S.times.pm[1];
   $('#floor-mgr').innerHTML = S.floors.map(f=>
@@ -2273,6 +2378,9 @@ for(const k in IMG_SEED){
 }
 if(seeded || imgSeeded) save();
 
+if(planRestored){
+  setTimeout(()=> toast('평면도 ' + planRestored + '개를 예비본에서 되살렸습니다', '확인', ()=>{}), 800);
+}
 if(!S.floors.includes(S.ui.floor)) S.ui.floor = S.floors[0];
 if(!S.floors.includes(S.cur.f)) S.cur.f = S.floors[0];
 fit();
