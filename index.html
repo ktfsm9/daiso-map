@@ -321,6 +321,11 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
       <div id="diag" class="muted" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);
         font-size:12px;line-height:1.6"></div>
     </div>
+    <div class="card" id="ff-card" style="display:none">
+      <h3>층 바로잡기</h3>
+      <p class="muted" id="ff-stat" style="margin:0 0 12px"></p>
+      <button class="btn gh" id="ff-go">어떤 상품인지 보기</button>
+    </div>
     <div class="card">
       <h3>상품 사진</h3>
       <p class="muted" id="img-stat" style="margin:0 0 12px"></p>
@@ -378,7 +383,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-07-d';
+const APP_VER = '2026-09-07-e';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -512,6 +517,28 @@ const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&
 const pad3 = n => String(n).padStart(3,'0');
 const pad2 = n => String(n).padStart(2,'0');
 function unitAt(f,t,no){ return S.units.find(u=>u.f===f&&u.t===t&&u.no===no); }
+/* ===== 층 바로잡기 =====
+   지시상품내역은 1.5층 상품도 "1F" 로 찍어준다.
+   평면도에 매대 번호를 그려두었으면 어느 층인지 알 수 있다.
+   그 번호가 딱 한 층에만 있을 때만 바꾼다 (애매하면 그대로 둔다). */
+function trueFloor(f, ut, uno){
+  if(!uno || !ut) return f;
+  if(unitAt(f, ut, uno)) return f;                 // 그 층에 그 번호가 있으면 맞다
+  const fl = [...new Set(S.units.filter(u=>u.t===ut && u.no===uno).map(u=>u.f))];
+  return fl.length === 1 ? fl[0] : f;              // 딱 한 층에만 있으면 그 층
+}
+/* 카탈로그에서 층이 어긋난 것들을 모은다 */
+function floorFixes(){
+  const out = [];
+  Object.keys(S.cat).forEach(k=>{
+    const c = S.cat[k];
+    if(!c.uno || !c.ut) return;
+    const t = trueFloor(c.f, c.ut, c.uno);
+    if(t !== c.f) out.push({k, from:c.f, to:t, c});
+  });
+  return out;
+}
+
 /* 같은 번호가 여러 조각일 수 있다 (꺾인 벽면, 나뉜 곤도라) */
 function unitsAt(f,t,no){ return S.units.filter(u=>u.f===f&&u.t===t&&u.no===no); }
 /* 여러 조각 중 기준점에서 가장 가까운 곳까지의 거리 */
@@ -1652,12 +1679,17 @@ function parsePaste(text){
     }
 
     const c = S.cat[code];
+    // 1.5층 상품이 1F 로 찍혀 오는 경우가 있다 — 평면도로 바로잡는다
+    const rawF = lm ? normFloor(lm[1]) : (c?c.f:S.floors[0]);
+    const ut0  = lm ? lm[2] : (c?c.ut:'곤도라');
+    const un0  = lm ? pad3(+lm[3]) : (c?c.uno:'');
+    const fixF = trueFloor(rawF, ut0, un0);
     rows.push({
       code, name: name || (c?c.n:''), q, qSet, on:true,
       known: !!c, sure: !!lm || !!(c&&c.uno),
-      f: lm ? normFloor(lm[1]) : (c?c.f:S.floors[0]),
-      ut: lm ? lm[2] : (c?c.ut:'곤도라'),
-      uno: lm ? pad3(+lm[3]) : (c?c.uno:''),
+      movedFrom: fixF !== rawF ? rawF : null,
+      f: fixF,
+      ut: ut0, uno: un0,
       ti: lm ? +lm[4] : (c?c.ti:0)
     });
   });
@@ -1790,6 +1822,8 @@ function drawReview(){
         + '<span>'+esc(r.code)+'</span>'
         + '<button class="kind '+(bad?'P':'Q')+'" data-l="'+i+'" style="cursor:pointer'+(bad?';background:#FBE3E1;color:#B4453A':'')+'">'
         + esc(r.f)+' '+(bad?'구역?':esc(r.ut))+' '+esc(r.uno||'???')+(r.ti?'-'+pad2(r.ti):'')+'</button>'
+        + (r.movedFrom ? '<span style="font-size:11px;color:var(--accent-strong);font-weight:700">'
+            + esc(r.movedFrom)+'→'+esc(r.f)+'</span>' : '')
         + (r.known?'':'<span style="color:var(--text-3)">새 코드</span>')
         + '</div>'
         + (bad ? '<div class="chips" style="margin-top:7px">'
@@ -2312,6 +2346,35 @@ function renderSet(){
     + (imgQueue.length || imgRunning ? '<br>가져오는 중… ' + (imgQueue.length + imgRunning) + '개 남음' : '')
     + (cacheBusy ? '<br>기기에 저장하는 중…' : '');
   $('#img-all').onclick = fetchAllImgs;
+
+  // 층 바로잡기 — 평면도에 그린 매대 번호로 판단한다
+  const fx = floorFixes();
+  $('#ff-card').style.display = fx.length ? '' : 'none';
+  if(fx.length){
+    const by = {};
+    fx.forEach(x=>{ const k = x.from+' → '+x.to; by[k] = (by[k]||0)+1; });
+    $('#ff-stat').innerHTML = '주문서에 찍힌 층과 평면도가 다른 상품이 <b>' + fx.length + '개</b> 있습니다<br>'
+      + Object.entries(by).map(([k,v])=> k + ' : ' + v + '개').join('<br>');
+    $('#ff-go').onclick = ()=>{
+      sheet('<h2>층 바로잡기</h2>'
+        + '<p class="sh-sub">평면도에 그 매대 번호가 딱 한 층에만 있을 때만 바꿉니다.<br>'
+        + '지시상품내역이 1.5층 상품을 1F 로 찍어주는 경우를 잡아줍니다.</p>'
+        + '<div class="card">' + fx.slice(0,120).map(x=>
+            '<div class="itm"><div class="txt"><div class="nm">' + esc(x.c.n||x.k) + '</div>'
+            + '<div class="mt">' + esc(x.k) + ' · ' + esc(x.from) + '-' + esc(x.c.ut) + '-' + esc(x.c.uno)
+            + '  →  <b style="color:var(--accent-strong)">' + esc(x.to) + '</b></div></div></div>').join('')
+        + (fx.length>120 ? '<div class="itm"><div class="txt"><div class="mt">외 ' + (fx.length-120) + '개</div></div></div>' : '')
+        + '</div>'
+        + '<button class="btn pri" id="ff-ok">' + fx.length + '개 모두 바로잡기</button>'
+        + '<button class="btn gh" id="ff-x" style="margin-top:9px">그대로 두기</button>');
+      $('#ff-ok').onclick = ()=>{
+        fx.forEach(x=>{ S.cat[x.k].f = x.to; });
+        writeNow(); closeSheet(); renderAll();
+        toast(fx.length + '개의 층을 바로잡았습니다');
+      };
+      $('#ff-x').onclick = closeSheet;
+    };
+  }
   $('#img-save').onclick = cacheAllThumbs;
   if($('#none-list')) $('#none-list').onclick = ev=>{
     ev.preventDefault();
