@@ -383,7 +383,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-07-e';
+const APP_VER = '2026-09-09-a';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -403,6 +403,8 @@ let S = load();
 function blank(){
   return { v:1, floors:['B1','1F','1.5F','2F'], units:[], cat:{}, orders:[],
            cur:{f:'1F'}, img:{}, times:{am:['10:00','13:30'], pm:['15:00','18:30']},
+           /* 지시상품내역이 1.5층 상품을 1F 로 찍어주므로, 번호로 구분한다 */
+           fno:{'1.5F':['072','073']},
            ui:{floor:'1F', date:today(), pf:[], po:[]} };
 }
 /* ---- 날짜 ---- */
@@ -475,6 +477,7 @@ function fill(o){
   const b = blank();
   for(const k in b) if(o[k] === undefined) o[k] = b[k];
   o.times = o.times || b.times;
+  o.fno = o.fno || b.fno;
   o.cur = o.cur || b.cur;
   o.ui = o.ui || b.ui;
   // 날짜가 없던 주문은 담은 날짜로 채운다
@@ -522,10 +525,15 @@ function unitAt(f,t,no){ return S.units.find(u=>u.f===f&&u.t===t&&u.no===no); }
    평면도에 매대 번호를 그려두었으면 어느 층인지 알 수 있다.
    그 번호가 딱 한 층에만 있을 때만 바꾼다 (애매하면 그대로 둔다). */
 function trueFloor(f, ut, uno){
-  if(!uno || !ut) return f;
+  if(!uno) return f;
+  // 1) 번호 규칙이 최우선 — 예: 072·073 은 1.5층
+  const R = S.fno || {};
+  for(const fl in R) if((R[fl]||[]).includes(uno)) return fl;
+  if(!ut) return f;
+  // 2) 규칙에 없으면 평면도로 판단
   if(unitAt(f, ut, uno)) return f;                 // 그 층에 그 번호가 있으면 맞다
-  const fl = [...new Set(S.units.filter(u=>u.t===ut && u.no===uno).map(u=>u.f))];
-  return fl.length === 1 ? fl[0] : f;              // 딱 한 층에만 있으면 그 층
+  const fs = [...new Set(S.units.filter(u=>u.t===ut && u.no===uno).map(u=>u.f))];
+  return fs.length === 1 ? fs[0] : f;              // 딱 한 층에만 있으면 그 층
 }
 /* 카탈로그에서 층이 어긋난 것들을 모은다 */
 function floorFixes(){
@@ -2433,7 +2441,20 @@ function renderSet(){
   $('#floor-mgr').innerHTML = S.floors.map(f=>
     '<div class="itm"><div class="txt"><div class="nm">'+esc(f)+'</div><div class="mt">유닛 '+unitsOn(f).length
     + ' · 상품 '+codes.filter(k=>S.cat[k].f===f).length+'</div></div>'
-    + '<button class="act" data-df="'+esc(f)+'" style="color:var(--no);border-color:var(--no)">삭제</button></div>').join('');
+    + '<button class="act" data-df="'+esc(f)+'" style="color:var(--no);border-color:var(--no)">삭제</button></div>'
+    + '<div style="padding:0 0 12px"><label class="fld" style="margin:0">'
+    + '<span style="font-size:12px">이 층의 매대 번호 (쉼표로 구분 · 비우면 평면도로 판단)</span>'
+    + '<input data-fn="'+esc(f)+'" value="'+esc((S.fno&&S.fno[f]||[]).join(', '))+'" '
+    + 'inputmode="numeric" placeholder="예: 072, 073"></label></div>').join('');
+  $$('#floor-mgr [data-fn]').forEach(el=> el.onchange = ()=>{
+    const f = el.dataset.fn;
+    const list = (el.value||'').split(/[,\s]+/).map(x=>x.trim()).filter(Boolean)
+      .map(x=> /^\d+$/.test(x) ? pad3(parseInt(x,10)) : x);
+    S.fno = S.fno || {};
+    if(list.length) S.fno[f] = list; else delete S.fno[f];
+    writeNow(); renderSet(); renderPick();
+    toast(list.length ? f + ' : ' + list.join(', ') + ' 로 정했습니다' : f + ' 번호 규칙을 지웠습니다');
+  });
   $$('#floor-mgr [data-df]').forEach(b=> b.onclick=()=>{
     const f=b.dataset.df;
     if(S.floors.length<=1){ toast('층은 하나 이상 있어야 합니다'); return; }
@@ -2523,7 +2544,7 @@ function renderAll(){ renderPick(); renderOrders(); renderPlan(); renderCat(); r
 const SEED = {
 "1029919":["펌프용기(200ml)", "1F", "곤도라", "043", 2],
 "1051097":["네오플램TPE핸들가위", "B1", "곤도라", "010", 3],
-"1059864":["2단지퍼 메시 케이스(14*22.5)", "1F", "벽면", "072", 4],
+"1059864":["2단지퍼 메시 케이스(14*22.5)", "1.5F", "벽면", "072", 4],
 "1061379":["입큰 퍼스널톤코렉팅블러팩트(라벤더)", "1F", "곤도라", "039", 6],
 "1067495":["VT 피디알엔 광채토너 200ml", "1F", "곤도라", "039", 4],
 "1071783":["키보드형 컬러계산기(12자리)", "", "", "", 0],
