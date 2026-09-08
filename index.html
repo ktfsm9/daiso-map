@@ -116,6 +116,9 @@ label.fld > span{display:block;font-size:12.5px;color:var(--text-3);margin-botto
   padding:7px 10px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums;white-space:nowrap}
 .upnext .u.f{border-color:var(--border-strong);background:var(--surface-2);font-weight:600}
 .upnext .u.pk{border-color:#9CC4E8;background:#EEF5FC}
+.stk{font-size:11px;font-weight:700;background:var(--surface-2);color:var(--text-2);
+  border-radius:6px;padding:1px 6px}
+.stk.low{background:#FBE3E1;color:#B4453A}
 .th{flex:none;border-radius:9px;object-fit:contain;background:#fff;border:1px solid var(--border)}
 .th.ph{background:repeating-linear-gradient(135deg,#F4F2EC,#F4F2EC 6px,#EDEAE2 6px,#EDEAE2 12px)}
 .thwrap{flex:none;cursor:zoom-in;line-height:0}
@@ -383,7 +386,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-09-a';
+const APP_VER = '2026-09-09-b';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -1212,9 +1215,11 @@ function renderPick(){
       + '<div class="thwrap" data-img="'+esc(x.ln.c)+'">'+thumb(x.ln.c, 46)+'</div>'
       + '<div class="m">'
       + '<div class="nm">'+(c.ti?'<span class="tierbadge">-'+pad2(c.ti)+'</span>':'')+esc(c.n||x.ln.c)+'</div>'
-      + '<div class="sub" style="display:flex;align-items:center;gap:6px">'
+      + '<div class="sub" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
       + '<span class="kind '+k+'" style="cursor:default">'+KIND[k]+' '+esc(x.o.no)+'</span>'
-      + '<span>'+esc(x.ln.c)+'</span></div></div>'
+      + '<span>'+esc(x.ln.c)+'</span>'
+      + (x.ln.st != null ? '<span class="stk'+(x.ln.st <= (x.ln.q||1) ? ' low' : '')+'">재고 '+x.ln.st+'</span>' : '')
+      + '</div></div>'
       + '<div class="qty">'+(x.ln.q||1)+'</div></div>';
   });
   h += '</div>';
@@ -1634,6 +1639,13 @@ function parsePaste(text){
     const code = (block[0].match(/\[\s*(\d{5,12})\s*\]/)||[])[1];
     if(!code) return;
 
+    // 현재고 — 그 자리에 몇 개 있는지. 없으면 찾느라 헤매게 되므로 같이 보여준다.
+    let stock = null;
+    for(const l of block){
+      const m = l.match(/현재고\s*[:：]?\s*(\d{1,5})(?!\d)/);
+      if(m){ stock = +m[1]; break; }
+    }
+
     // 위치 줄
     let li = -1, lm = null;
     for(let i=0;i<block.length;i++){
@@ -1696,6 +1708,7 @@ function parsePaste(text){
       code, name: name || (c?c.n:''), q, qSet, on:true,
       known: !!c, sure: !!lm || !!(c&&c.uno),
       movedFrom: fixF !== rawF ? rawF : null,
+      stock,
       f: fixF,
       ut: ut0, uno: un0,
       ti: lm ? +lm[4] : (c?c.ti:0)
@@ -1708,6 +1721,7 @@ function parsePaste(text){
     const p = seen.get(r.code);
     if(!p){ seen.set(r.code, r); merged.push(r); return; }
     if(r.qSet && !p.qSet){ p.q = r.q; p.qSet = true; }
+    if(p.stock == null && r.stock != null) p.stock = r.stock;
     if(!p.name && r.name) p.name = r.name;
     if(!p.uno && r.uno){ p.f=r.f; p.ut=r.ut; p.uno=r.uno; p.ti=r.ti; p.sure=r.sure; }
   });
@@ -1832,6 +1846,7 @@ function drawReview(){
         + esc(r.f)+' '+(bad?'구역?':esc(r.ut))+' '+esc(r.uno||'???')+(r.ti?'-'+pad2(r.ti):'')+'</button>'
         + (r.movedFrom ? '<span style="font-size:11px;color:var(--accent-strong);font-weight:700">'
             + esc(r.movedFrom)+'→'+esc(r.f)+'</span>' : '')
+        + (r.stock != null ? '<span class="stk'+(r.stock <= r.q ? ' low' : '')+'">재고 '+r.stock+'</span>' : '')
         + (r.known?'':'<span style="color:var(--text-3)">새 코드</span>')
         + '</div>'
         + (bad ? '<div class="chips" style="margin-top:7px">'
@@ -1938,8 +1953,8 @@ function commitShot(){
   let added=0;
   rows.forEach(r=>{
     const ex = o.l.find(l=>l.c===r.code);
-    if(ex) ex.q = Math.max(ex.q||1, r.q);
-    else { o.l.push({c:r.code, q:r.q}); added++; }
+    if(ex){ ex.q = Math.max(ex.q||1, r.q); if(r.stock != null) ex.st = r.stock; }
+    else { const ln = {c:r.code, q:r.q}; if(r.stock != null) ln.st = r.stock; o.l.push(ln); added++; }
   });
   save(); closeSheet(); renderOrders(); renderPick(); renderCat();
   toast('주문 '+no+' 에 '+added+'줄 담음' + (newCat?' · 새 상품 '+newCat+'개 등록':''));
