@@ -394,7 +394,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-12-a';
+const APP_VER = '2026-09-12-b';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -419,7 +419,8 @@ function blank(){
            fno:{'1.5F':['072','073']},
            /* 오후 7시부터는 오전·오후를 한 번에 본다 */
            mergeAt:'19:00',
-           ui:{floor:'1F', date:today(), pf:[], po:[]} };
+           /* 픽업은 다른 직원이 맡으므로 기본은 퀵만 본다 */
+           ui:{floor:'1F', date:today(), pf:[], po:[], pk:'Q'} };
 }
 /* ---- 날짜 ---- */
 const DOW = ['일','월','화','수','목','금','토'];
@@ -994,9 +995,14 @@ function poSet(){
   const live = new Set(sessOrders().map(o=>o.no));
   return (S.ui.po||[]).filter(n=> live.has(n));
 }
-function scopeOn(){ return pfSet().length > 0 || poSet().length > 0; }
+function scopeOn(){ return pfSet().length > 0 || poSet().length > 0 || pkSet() !== 'all'; }
+
+function pkSet(){ return S.ui.pk === 'P' || S.ui.pk === 'all' ? S.ui.pk : 'Q'; }
+function pkLabel(){ return {Q:'퀵만', P:'픽업만', all:'퀵+픽업'}[pkSet()]; }
 
 function inScope(x){
+  const pk = pkSet();
+  if(pk !== 'all' && lineKind(x) !== pk) return false;
   const po = poSet();
   if(po.length && !po.includes(lineNo(x))) return false;
   const pf = pfSet();
@@ -1093,7 +1099,9 @@ function routeFor(rem, from){
   order.forEach((f, fi)=>{
     const list = byF.get(f);
     const stair = S.units.find(u=>u.f===f && u.t==='계단');
-    const start = entry || (stair ? ctr(stair) : (list[0].unit ? ctr(list[0].unit) : [0,0]));
+    // 그 층에 계단이 있으면 언제나 계단에서 출발한다.
+    // (앞 층의 계단 좌표를 그대로 쓰면 엉뚱한 데서 시작한다)
+    const start = stair ? ctr(stair) : (entry || (list[0].unit ? ctr(list[0].unit) : [0,0]));
     // 같은 번호가 여러 조각이면 들어오는 쪽에서 가까운 조각을 쓴다 (꺾인 벽면 등)
     list.forEach(st=>{ if(st.units && st.units.length > 1) st.unit = nearestUnit(st.units, start); });
     const back = fi < order.length-1 && stair ? ctr(stair) : null;
@@ -1145,42 +1153,63 @@ function floorOrder(fs, from){
   const below = v.filter(f=>idx(f)<cur).sort((a,b)=>idx(b)-idx(a));
   return above.concat(below);
 }
+/* ===== 한 층 안에서 도는 순서 =====
+   계단에서 출발해 시계방향으로 한 바퀴 돈다.
+   한 자리를 끝내면 "앞쪽(시계방향)에서 가장 가까운 곳" 으로 간다.
+   뒤로 돌아가는 것은 크게 불리하게 매겨, 왔던 길을 되짚지 않는다. */
+const BACK_PENALTY = 2.2;          // 뒤로 갈 때 거리를 몇 배로 치나
+
 function orderStops(list, start, back){
-  const pts = list.map(s => s.unit ? ctr(s.unit) : null);
-  // 좌표 없는 매대는 뒤로 밀되 번호순 유지
-  const known = list.filter((s,i)=>pts[i]);
-  const unknown = list.filter((s,i)=>!pts[i]).sort((a,b)=>a.uno.localeCompare(b.uno,undefined,{numeric:true}));
+  const known   = list.filter(s=>s.unit);
+  const unknown = list.filter(s=>!s.unit)
+    .sort((a,b)=>a.uno.localeCompare(b.uno,undefined,{numeric:true}));
   if(known.length < 2) return known.concat(unknown);
 
   const P = known.map(s=>ctr(s.unit));
   const n = known.length;
-  // 최근접 이웃
-  const used = new Array(n).fill(false);
-  let cur = start, seq = [];
-  for(let k=0;k<n;k++){
-    let best=-1, bd=Infinity;
-    for(let i=0;i<n;i++) if(!used[i]){ const d=dist(cur,P[i]); if(d<bd){bd=d;best=i;} }
-    used[best]=true; seq.push(best); cur=P[best];
-  }
-  // 2-opt
-  const cost = sq => {
-    let t = dist(start, P[sq[0]]);
-    for(let i=0;i<sq.length-1;i++) t += dist(P[sq[i]], P[sq[i+1]]);
-    if(back) t += dist(P[sq[sq.length-1]], back);
-    return t;
+
+  // 그 층의 한가운데 — 시계방향을 재는 기준점
+  const cx = P.reduce((a,p)=>a+p[0],0)/n, cy = P.reduce((a,p)=>a+p[1],0)/n;
+  const ang = p => Math.atan2(p[1]-cy, p[0]-cx);       // 화면 좌표라 커질수록 시계방향
+  const TAU = Math.PI*2;
+  const cwGap = (from, to) => {                        // from 에서 시계방향으로 얼마나 가야 하나
+    let d = ang(to) - ang(from);
+    while(d < 0) d += TAU;
+    while(d >= TAU) d -= TAU;
+    return d;
   };
-  let improved = true, guard = 0;
-  while(improved && guard++ < 60){
-    improved = false;
-    for(let i=0;i<seq.length-1;i++){
-      for(let j=i+1;j<seq.length;j++){
-        const cand = seq.slice(0,i).concat(seq.slice(i,j+1).reverse(), seq.slice(j+1));
-        if(cost(cand) < cost(seq) - 0.5){ seq = cand; improved = true; }
+
+  const used = new Array(n).fill(false);
+  const seq = [];
+  let cur = start, curA = null;
+
+  for(let k=0; k<n; k++){
+    let best = -1, bs = Infinity;
+    for(let i=0; i<n; i++){
+      if(used[i]) continue;
+      let c = dist(cur, P[i]);
+      if(curA !== null){
+        const g = cwGap(curA, P[i]);
+        // 반 바퀴를 넘겨야 닿는 곳 = 사실상 뒤쪽이다
+        if(g > Math.PI) c *= 1 + BACK_PENALTY * (g - Math.PI) / Math.PI;
       }
+      if(c < bs){ bs = c; best = i; }
     }
+    used[best] = true; seq.push(best);
+    cur = P[best]; curA = P[best];
+  }
+
+  // 다음 층으로 갈 거라면, 마지막 두 곳을 바꿔 계단에 더 가깝게 끝낼 수 있는지만 본다
+  if(back && seq.length >= 2){
+    const a = seq[seq.length-2], b = seq[seq.length-1];
+    const prev = seq.length >= 3 ? P[seq[seq.length-3]] : start;
+    const keep = dist(prev, P[a]) + dist(P[a], P[b]) + dist(P[b], back);
+    const swap = dist(prev, P[b]) + dist(P[b], P[a]) + dist(P[a], back);
+    if(swap < keep - 0.5){ seq[seq.length-2] = b; seq[seq.length-1] = a; }
   }
   return seq.map(i=>known[i]).concat(unknown);
 }
+
 
 /* ==================== 피킹 화면 ==================== */
 let RT = null;
@@ -1387,10 +1416,10 @@ function drawRoute(svg, cur){
    층별 담당자에게 층을 넘기고, 남은 주문서를 나눠 가질 때 쓴다. */
 function scopeText(){
   const pf = pfSet(), po = poSet();
-  if(!pf.length && !po.length) return '';
-  const a = pf.length ? pf.join(' · ') : '전체 층';
-  const b = po.length ? '주문서 ' + po.length + '건' : '주문서 전체';
-  return a + ' / ' + b;
+  const bits = [pkLabel()];
+  if(pf.length) bits.push(pf.join(' · '));
+  if(po.length) bits.push('주문서 ' + po.length + '건');
+  return bits.join(' / ');
 }
 function renderScopeBar(){
   const t = scopeText();
@@ -1399,7 +1428,7 @@ function renderScopeBar(){
   bar.innerHTML = '<span>내 범위 <b>' + esc(t) + '</b></span>'
     + '<button class="x" id="scope-clear">전체 보기</button>';
   $('#scope-clear').onclick = ()=>{
-    S.ui.pf = []; S.ui.po = []; save(); renderPick();
+    S.ui.pf = []; S.ui.po = []; S.ui.pk = 'all'; save(); renderPick();
     toast('전체 범위로 돌아왔습니다');
   };
 }
@@ -1414,7 +1443,17 @@ function openScope(){
     let h = '<h2>피킹 범위</h2>'
       + '<p class="sh-sub">담당자와 나눠서 피킹할 때 내가 맡을 층과 주문서를 고르세요</p>';
 
-    h += '<h3 style="margin:14px 0 0">시간대</h3>'
+    h += '<h3 style="margin:14px 0 0">구분</h3>'
+      + '<div class="muted" style="margin-top:2px">픽업을 다른 분이 맡으면 퀵만 고르세요</div>'
+      + '<div class="scopegrid">'
+      + [['Q','퀵만'],['P','픽업만'],['all','퀵+픽업']].map(([v,t])=>{
+          const c = allLines().filter(x=>!x.ln.d && (v==='all' || lineKind(x)===v)).length;
+          return '<button class="c' + (pkSet()===v?' on':'') + (c?'':' zero')
+               + '" data-pk="' + v + '">' + t + ' <i>' + c + '</i></button>';
+        }).join('')
+      + '</div>';
+
+    h += '<h3 style="margin:16px 0 0">시간대</h3>'
       + '<div class="muted" style="margin-top:2px">'
       + (autoMerge() ? S.mergeAt + ' 가 지나 자동으로 합쳐 보고 있습니다'
                      : S.mergeAt + ' 이 지나면 자동으로 합쳐집니다') + '</div>'
@@ -1464,7 +1503,9 @@ function openScope(){
     sheet(h);
     $$('#sheet-body .scopegrid .c').forEach(el=>{
       el.onclick = ()=>{
-        if(el.dataset.ps !== undefined){
+        if(el.dataset.pk !== undefined){
+          S.ui.pk = el.dataset.pk;
+        } else if(el.dataset.ps !== undefined){
           S.ui.ps = el.dataset.ps;
         } else if(el.dataset.f !== undefined){
           const f = el.dataset.f, cur = pfSet();
