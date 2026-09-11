@@ -394,7 +394,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-12-b';
+const APP_VER = '2026-09-12-c';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -1180,7 +1180,7 @@ function orderStops(list, start, back){
   };
 
   const used = new Array(n).fill(false);
-  const seq = [];
+  let seq = [];
   let cur = start, curA = null;
 
   for(let k=0; k<n; k++){
@@ -1199,13 +1199,28 @@ function orderStops(list, start, back){
     cur = P[best]; curA = P[best];
   }
 
-  // 다음 층으로 갈 거라면, 마지막 두 곳을 바꿔 계단에 더 가깝게 끝낼 수 있는지만 본다
-  if(back && seq.length >= 2){
-    const a = seq[seq.length-2], b = seq[seq.length-1];
-    const prev = seq.length >= 3 ? P[seq[seq.length-3]] : start;
-    const keep = dist(prev, P[a]) + dist(P[a], P[b]) + dist(P[b], back);
-    const swap = dist(prev, P[b]) + dist(P[b], P[a]) + dist(P[a], back);
-    if(swap < keep - 0.5){ seq[seq.length-2] = b; seq[seq.length-1] = a; }
+  /* 가까운 곳만 좇다 보면 외딴 자리가 뒤에 남아, 마지막에 크게 되돌아간다.
+     순서를 뒤집어 보며 더 나은 게 있으면 바꾼다.
+     이때도 "뒤로 가는 이동" 에는 벌점을 그대로 매겨 시계방향을 지킨다. */
+  /* 개선은 "실제로 덜 걷는가" 로만 따진다.
+     여기에 방향 벌점을 섞으면 빙 돌아가는 순서가 싸 보여 오히려 나빠진다.
+     시계방향은 위의 출발 순서(가까운 곳 우선 + 뒤로 가기 벌점)가 이미 잡아준다. */
+  const tour = sq => {
+    let t = dist(start, P[sq[0]]);                 // 계단에서 첫 자리까지
+    for(let i=0;i<sq.length-1;i++) t += dist(P[sq[i]], P[sq[i+1]]);
+    if(back) t += dist(P[sq[sq.length-1]], back);  // 다음 층 계단까지
+    return t;
+  };
+  let improved = true, guard = 0, bestCost = tour(seq);
+  while(improved && guard++ < 60){
+    improved = false;
+    for(let i=0;i<seq.length-1;i++){
+      for(let j=i+1;j<seq.length;j++){
+        const cand = seq.slice(0,i).concat(seq.slice(i,j+1).reverse(), seq.slice(j+1));
+        const c = tour(cand);
+        if(c < bestCost - 0.5){ seq = cand; bestCost = c; improved = true; }
+      }
+    }
   }
   return seq.map(i=>known[i]).concat(unknown);
 }
