@@ -25,6 +25,8 @@
   --cash:#3F7D58; --cash-bg:#E6F0E9;
   --stair:#6B6A65; --stair-bg:#EAE8E0;
   --flat:#A85A7A; --flat-bg:#F6E7EE;
+  --event:#C2632B; --event-bg:#FAEBDF;
+  --season:#4E8A7A; --season-bg:#E3F0EC;
   --r:14px;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -82,6 +84,8 @@ label.fld > span{display:block;font-size:12.5px;color:var(--text-3);margin-botto
 .lb.곤도라{background:var(--gondola-bg);color:var(--gondola)}
 .lb.벽면{background:var(--wall-bg);color:var(--wall)}
 .lb.평대{background:var(--flat-bg);color:var(--flat)}
+.lb.행사{background:var(--event-bg);color:var(--event)}
+.lb.시즌{background:var(--season-bg);color:var(--season)}
 .lb.창고{background:var(--store-bg);color:var(--store)}
 .lb.계산대{background:var(--cash-bg);color:var(--cash)}
 .lb.계단{background:var(--stair-bg);color:var(--stair)}
@@ -163,6 +167,8 @@ svg.plan{display:block;width:100%;background:var(--surface);touch-action:none}
 .tool.on[data-t="계산대"]{background:var(--cash);border-color:var(--cash)}
 .tool.on[data-t="계단"]{background:var(--stair);border-color:var(--stair)}
 .tool.on[data-t="평대"]{background:var(--flat);border-color:var(--flat)}
+.tool.on[data-t="행사"]{background:var(--event);border-color:var(--event)}
+.tool.on[data-t="시즌"]{background:var(--season);border-color:var(--season)}
 .stepper{display:flex;align-items:center;border:1px solid var(--border-strong);border-radius:11px;overflow:hidden;background:var(--surface)}
 .stepper button{width:42px;height:44px;border:none;background:var(--surface);font-size:19px;color:var(--text-2);cursor:pointer;font-family:inherit;flex:none}
 .stepper button:active{background:var(--surface-2)}
@@ -265,6 +271,8 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
         <button class="tool" data-t="곤도라">곤도라</button>
         <button class="tool" data-t="벽면">벽면</button>
         <button class="tool" data-t="평대">평대</button>
+        <button class="tool" data-t="행사">행사</button>
+        <button class="tool" data-t="시즌">시즌</button>
         <button class="tool" data-t="창고">창고</button>
         <button class="tool" data-t="계산대">계산대</button>
         <button class="tool" data-t="계단">계단</button>
@@ -386,20 +394,21 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-09-b';
+const APP_VER = '2026-09-12-a';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
 const PLANBAK = 'daiso_plan_bak';
 /* 실수로 지워도 되돌릴 수 있게, 여태 가장 많이 그렸던 상태도 따로 남긴다 */
 const PLANMAX = 'daiso_plan_max';
-const TYPES = ['곤도라','벽면','평대','창고','계산대','계단'];
-const LOC_TYPES = ['곤도라','벽면','평대','창고','계산대'];
-const DEF = { w:{곤도라:1,벽면:1,평대:3,창고:3,계산대:2,계단:2}, h:{곤도라:4,벽면:5,평대:2,창고:3,계산대:2,계단:2},
-              tiers:{곤도라:5,벽면:5,평대:1,창고:4,계산대:1,계단:1} };
+const TYPES = ['곤도라','벽면','평대','행사','시즌','창고','계산대','계단'];
+const LOC_TYPES = ['곤도라','벽면','평대','행사','시즌','창고','계산대'];
+const DEF = { w:{곤도라:1,벽면:1,평대:3,행사:3,시즌:3,창고:3,계산대:2,계단:2},
+              h:{곤도라:4,벽면:5,평대:2,행사:2,시즌:2,창고:3,계산대:2,계단:2},
+              tiers:{곤도라:5,벽면:5,평대:1,행사:2,시즌:2,창고:4,계산대:1,계단:1} };
 const COLS = 48, ROWS = 36, CELL = 20;
-const FILL = {곤도라:'#EDEAF6',벽면:'#E4F0F6',평대:'#F6E7EE',창고:'#F7EEDD',계산대:'#E6F0E9',계단:'#EAE8E0'};
-const LINE = {곤도라:'#7C6BAF',벽면:'#2F7DA8',평대:'#A85A7A',창고:'#B07A2F',계산대:'#3F7D58',계단:'#6B6A65'};
+const FILL = {곤도라:'#EDEAF6',벽면:'#E4F0F6',평대:'#F6E7EE',행사:'#FAEBDF',시즌:'#E3F0EC',창고:'#F7EEDD',계산대:'#E6F0E9',계단:'#EAE8E0'};
+const LINE = {곤도라:'#7C6BAF',벽면:'#2F7DA8',평대:'#A85A7A',행사:'#C2632B',시즌:'#4E8A7A',창고:'#B07A2F',계산대:'#3F7D58',계단:'#6B6A65'};
 
 /* ==================== 저장소 ==================== */
 let S = load();
@@ -408,6 +417,8 @@ function blank(){
            cur:{f:'1F'}, img:{}, times:{am:['10:00','13:30'], pm:['15:00','18:30']},
            /* 지시상품내역이 1.5층 상품을 1F 로 찍어주므로, 번호로 구분한다 */
            fno:{'1.5F':['072','073']},
+           /* 오후 7시부터는 오전·오후를 한 번에 본다 */
+           mergeAt:'19:00',
            ui:{floor:'1F', date:today(), pf:[], po:[]} };
 }
 /* ---- 날짜 ---- */
@@ -481,6 +492,7 @@ function fill(o){
   for(const k in b) if(o[k] === undefined) o[k] = b[k];
   o.times = o.times || b.times;
   o.fno = o.fno || b.fno;
+  o.mergeAt = o.mergeAt || b.mergeAt;
   o.cur = o.cur || b.cur;
   o.ui = o.ui || b.ui;
   // 날짜가 없던 주문은 담은 날짜로 채운다
@@ -839,11 +851,14 @@ function thumb(code, size, cls){
 }
 
 function locStr(c){ return c && c.uno ? c.f+'-'+c.ut+'-'+c.uno+(c.ti?'-'+pad2(c.ti):'') : '위치 미지정'; }
-const ABBR = {곤도라:'곤', 벽면:'벽', 평대:'평', 창고:'창', 계산대:'계', 계단:'단'};
+const ABBR = {곤도라:'곤', 벽면:'벽', 평대:'평', 행사:'행', 시즌:'시', 창고:'창', 계산대:'계', 계단:'단'};
 function abbr(t){ return ABBR[t] || ''; }
 /* 주문 구분 — Q: 퀵(당일출고), P: 픽업(매장픽업) */
 const KIND = { Q:'퀵', P:'픽업' };
 function kindOf(o){ return o.k === 'P' ? 'P' : 'Q'; }
+/* 주문서를 한 건으로 묶어도 줄마다 원래 번호와 구분은 남는다 */
+function lineNo(x){ return x.ln.no || x.o.no; }
+function lineKind(x){ return x.ln.k ? (x.ln.k==='P'?'P':'Q') : kindOf(x.o); }
 function kindLabel(o){ return KIND[kindOf(o)]; }
 
 let toastT=null, toastFn=null;
@@ -883,7 +898,79 @@ function leftText(){
 
 /* ==================== 주문 ==================== */
 function curDate(){ return S.ui.date || today(); }
-function sessOrders(){ return S.orders.filter(o=>o.s===sess && o.d===curDate()); }
+/* ===== 오전 / 오후 / 통합 =====
+   피킹 중에 주문이 수시로 들어오고, 오전 것이 안 끝난 채 오후로 넘어가기도 한다.
+   S.ui.ps : '' = 지금 시간대만 · 'both' = 오전+오후 함께 */
+function mergeTime(){ return hm(S.mergeAt || '19:00'); }
+function autoMerge(){ return nowMin() >= mergeTime(); }   // 오후 7시부터 자동 통합
+function bothOn(){ return S.ui.ps === 'both'; }   // 직접 고를 때만
+function sessLabelNow(){ return bothOn() ? '오전+오후' : sessLabel(sess); }
+
+function sessOrders(){
+  return S.orders.filter(o=> o.d===curDate() && (bothOn() || o.s===sess));
+}
+/* ===== 주문서 묶기 =====
+   하루 동안 주문서가 여러 건으로 쪼개져 들어온다.
+   마감(기본 19:00) 이 지나면 시간대마다 한 건으로 묶어 그날 기록으로 남긴다.
+   줄마다 원래 주문서 번호와 퀵/픽업은 그대로 남으므로 잃는 정보가 없다. */
+/* 붙여넣을 때 기본으로 고를 시간대 —
+   안 끝난 줄이 있는 쪽으로 보내야 새 주문이 그 피킹에 합류한다 */
+function pasteSess(){
+  const left = v => S.orders.filter(o=>o.d===curDate() && o.s===v)
+    .reduce((n,o)=> n + o.l.filter(l=>!l.d).length, 0);
+  const a = left('am'), b = left('pm');
+  if(a && !b) return 'am';
+  if(b && !a) return 'pm';
+  return sess;
+}
+function mergeName(sv){ return sv==='am' ? '오전' : '오후'; }
+
+/* 그 시간대의 주문서들 — 먼저 들어온 것이 "본 주문건" */
+function sessionOrders(d, sv){
+  return S.orders.filter(o=> o.d===d && o.s===sv).sort((a,b)=> (a.ts||0) - (b.ts||0));
+}
+/* 추가 주문건들을 본 주문건으로 흡수시킨다 */
+function mergeSession(d, sv){
+  const src = sessionOrders(d, sv);
+  if(src.length < 2) return 0;
+  const box = src[0];                                  // 본 주문건
+  // 본 주문건의 줄에도 출처를 박아둔다 (묶인 뒤에도 구분이 보이도록)
+  box.l.forEach(ln=>{ if(!ln.no) ln.no = box.no; if(!ln.k) ln.k = kindOf(box); });
+  let n = 0;
+  src.slice(1).forEach(o=>{
+    o.l.forEach(ln=>{
+      box.l.push(Object.assign({}, ln, { no: ln.no || o.no, k: ln.k || kindOf(o) }));
+      n++;
+    });
+  });
+  const ids = new Set(src.slice(1).map(o=>o.id));
+  S.orders = S.orders.filter(o=> !ids.has(o.id));
+  box.m = (box.m || 0) + src.length - 1;                // 흡수한 건수
+  return n;
+}
+/* 마감(기본 19:00) 이 지나면 시간대마다 본 주문건으로 묶는다 */
+let mergeChecked = '';
+function autoMergeOrders(){
+  const d = today();
+  if(nowMin() < mergeTime() || mergeChecked === d) return;
+  mergeChecked = d;
+  let n = 0; const log = [];
+  ['am','pm'].forEach(sv=>{
+    const c = sessionOrders(d, sv).length;
+    if(c >= 2){ const k = mergeSession(d, sv); if(k){ n += k; log.push(mergeName(sv)+' '+c+'건'); } }
+  });
+  if(n){
+    writeNow();
+    setTimeout(()=> toast(log.join(' · ') + ' → 본 주문건으로 묶었습니다 (' + n + '줄 흡수)'), 600);
+  }
+}
+
+/* 지금 시간대 말고 다른 시간대에 안 끝난 줄이 있나 */
+function otherSessLeft(){
+  const o = sess==='am' ? 'pm' : 'am';
+  return S.orders.filter(x=>x.d===curDate() && x.s===o)
+    .reduce((n,x)=> n + x.l.filter(l=>!l.d).length, 0);
+}
 /* 다른 날짜에 남아 있는 미완료 주문 */
 function leftovers(){
   const d = curDate();
@@ -911,7 +998,7 @@ function scopeOn(){ return pfSet().length > 0 || poSet().length > 0; }
 
 function inScope(x){
   const po = poSet();
-  if(po.length && !po.includes(x.o.no)) return false;
+  if(po.length && !po.includes(lineNo(x))) return false;
   const pf = pfSet();
   if(pf.length){
     const c = locOf(x.ln.c);
@@ -941,7 +1028,7 @@ function byOrderCount(){
       const c = locOf(x.ln.c);
       if(!c || !pf.includes(c.f)) return;
     }
-    m[x.o.no] = (m[x.o.no]||0) + 1;
+    m[lineNo(x)] = (m[lineNo(x)]||0) + 1;
   });
   return m;
 }
@@ -1024,8 +1111,8 @@ function routeFor(rem, from){
    그 대신 픽업이 확실히 먼저 완성된다. */
 function buildRoute(){
   const rem = scopedRem();
-  const P = rem.filter(x=> kindOf(x.o)==='P');
-  const Q = rem.filter(x=> kindOf(x.o)!=='P');
+  const P = rem.filter(x=> lineKind(x)==='P');
+  const Q = rem.filter(x=> lineKind(x)!=='P');
 
   const a = routeFor(P, S.cur.f);
   const b = routeFor(Q, a.route.length ? a.endF : S.cur.f);
@@ -1105,7 +1192,7 @@ let HOLD = null;
 function holdStop(hold){
   if(!hold) return null;
   const items = scopedAll().filter(x=>{
-    if(kindOf(x.o) !== hold.lap) return false;
+    if(lineKind(x) !== hold.lap) return false;
     const c = locOf(x.ln.c);
     return c && (c.f+'|'+c.ut+'|'+c.uno) === hold.k;
   });
@@ -1117,14 +1204,15 @@ function holdStop(hold){
            items, lap: hold.lap, held:true };
 }
 function renderPick(){
+  autoMergeOrders();
   RT = buildRoute();
   renderScopeBar();
   // 범위를 골랐으면 그 안에서만 세고, 아니면 전체
   const all = scopedAll(), rem = scopedRem();
   const doneN = all.length - rem.length;
   const total = allLines().length;
-  $('#pick-h').textContent = dateLabel(curDate()).replace(/ (오늘|어제|내일)$/,'') + ' ' + sessLabel(sess) + ' 피킹';
-  const q = rem.filter(x=>kindOf(x.o)==='Q').length, pk = rem.length - q;
+  $('#pick-h').textContent = dateLabel(curDate()).replace(/ (오늘|어제|내일)$/,'') + ' ' + sessLabelNow() + ' 피킹';
+  const q = rem.filter(x=>lineKind(x)==='Q').length, pk = rem.length - q;
   $('#pick-sub').innerHTML = total
     ? (all.length
         ? (doneN + ' / ' + all.length + '줄'
@@ -1164,7 +1252,7 @@ function renderPick(){
   if(!rem.length && !held){
     const leftAll = remaining().length;
     box.innerHTML = '<div class="empty" style="padding-top:50px"><div style="font-size:46px;margin-bottom:8px">✓</div>'
-      + '<b>'+(scopeOn()?'내 범위':sessLabel(sess)+' 피킹')+' 완료</b>'
+      + '<b>'+(scopeOn()?'내 범위':sessLabelNow()+' 피킹')+' 완료</b>'
       + all.length+'줄을 모두 집었습니다.'
       + (leftAll ? '<br>다른 범위에 '+leftAll+'줄이 남아 있습니다.' : '') + '</div>'
       + (leftAll ? '<button class="btn pri" id="go-all2">남은 '+leftAll+'줄 마저 하기</button>' : '')
@@ -1184,8 +1272,20 @@ function renderPick(){
   const pickStops = RT.split;
 
   let h = '';
+  // 오전·오후를 합쳐 보고 있으면 알려준다
+  if(bothOn()){
+    const am = all.filter(x=>x.o.s==='am').length, pm = all.length - am;
+    h += '<div class="lapbar q" style="background:#EFEDE4;color:#5A584F">'
+       + '<b>오전 + 오후 함께</b>오전 ' + am + '줄 · 오후 ' + pm + '줄을 한 번에 돕니다'
+       + (autoMerge() ? '' : ' (직접 고르심)') + '</div>';
+  } else if(otherSessLeft()){
+    h += '<div class="lapbar q" style="background:#FFF6E9;color:#8A5A12">'
+       + '<b>' + (sess==='am'?'오후':'오전') + '에 안 끝난 ' + otherSessLeft() + '줄이 있습니다</b>'
+       + '범위에서 "오전+오후 함께" 를 고르면 같이 돕니다</div>';
+  }
+
   // 픽업 바퀴인지 퀵 바퀴인지 먼저 알려준다
-  const pkTotal = all.filter(x=>kindOf(x.o)==='P').length;
+  const pkTotal = all.filter(x=>lineKind(x)==='P').length;
   if(pickStops){
     h += '<div class="lapbar p"><b>픽업 먼저</b>'
        + '매장에서 기다리는 주문입니다 · 남은 '+pickStops+'곳</div>';
@@ -1208,7 +1308,7 @@ function renderPick(){
   h += '<div class="picks">';
   st.items.forEach(x=>{
     const c = S.cat[x.ln.c] || {};
-    const k = kindOf(x.o);
+    const k = lineKind(x);
     wantImg(x.ln.c);
     h += '<div class="pk'+(x.ln.d?' done':'')+'" data-o="'+x.o.id+'" data-i="'+x.i+'">'
       + '<div class="bx">✓</div>'
@@ -1216,7 +1316,7 @@ function renderPick(){
       + '<div class="m">'
       + '<div class="nm">'+(c.ti?'<span class="tierbadge">-'+pad2(c.ti)+'</span>':'')+esc(c.n||x.ln.c)+'</div>'
       + '<div class="sub" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
-      + '<span class="kind '+k+'" style="cursor:default">'+KIND[k]+' '+esc(x.o.no)+'</span>'
+      + '<span class="kind '+k+'" style="cursor:default">'+KIND[k]+' '+esc(lineNo(x))+'</span>'
       + '<span>'+esc(x.ln.c)+'</span>'
       + (x.ln.st != null ? '<span class="stk'+(x.ln.st <= (x.ln.q||1) ? ' low' : '')+'">재고 '+x.ln.st+'</span>' : '')
       + '</div></div>'
@@ -1314,6 +1414,17 @@ function openScope(){
     let h = '<h2>피킹 범위</h2>'
       + '<p class="sh-sub">담당자와 나눠서 피킹할 때 내가 맡을 층과 주문서를 고르세요</p>';
 
+    h += '<h3 style="margin:14px 0 0">시간대</h3>'
+      + '<div class="muted" style="margin-top:2px">'
+      + (autoMerge() ? S.mergeAt + ' 가 지나 자동으로 합쳐 보고 있습니다'
+                     : S.mergeAt + ' 이 지나면 자동으로 합쳐집니다') + '</div>'
+      + '<div class="scopegrid">'
+      + [['one', sessLabel(sess) + '만'], ['both','오전+오후 함께']].map(([v,t])=>{
+          const on = (v==='both') === bothOn();
+          return '<button class="c' + (on?' on':'') + '" data-ps="' + v + '">' + t + '</button>';
+        }).join('')
+      + '</div>';
+
     h += '<h3 style="margin:14px 0 0">층</h3>'
       + '<div class="muted" style="margin-top:2px">고르지 않으면 전체 층을 돕니다</div>'
       + '<div class="scopegrid">'
@@ -1353,7 +1464,9 @@ function openScope(){
     sheet(h);
     $$('#sheet-body .scopegrid .c').forEach(el=>{
       el.onclick = ()=>{
-        if(el.dataset.f !== undefined){
+        if(el.dataset.ps !== undefined){
+          S.ui.ps = el.dataset.ps;
+        } else if(el.dataset.f !== undefined){
           const f = el.dataset.f, cur = pfSet();
           S.ui.pf = cur.includes(f) ? cur.filter(x=>x!==f) : cur.concat([f]);
         } else {
@@ -1376,10 +1489,10 @@ function showRemainList(){
   const rem = remaining();
   if(!rem.length){ toast('남은 상품이 없습니다'); return; }
   const byOrd = {};
-  rem.forEach(x=> (byOrd[x.o.no] = byOrd[x.o.no]||[]).push(x));
-  const qn = rem.filter(x=>kindOf(x.o)==='Q').length;
+  rem.forEach(x=> (byOrd[lineNo(x)] = byOrd[lineNo(x)]||[]).push(x));
+  const qn = rem.filter(x=>lineKind(x)==='Q').length;
   let h = '<h2>남은 상품 '+rem.length+'줄</h2>'
-    + '<p class="sh-sub">'+sessLabel(sess)+' · 퀵 '+qn+'줄 · 픽업 '+(rem.length-qn)+'줄</p>';
+    + '<p class="sh-sub">'+sessLabelNow()+' · 퀵 '+qn+'줄 · 픽업 '+(rem.length-qn)+'줄</p>';
   Object.keys(byOrd).sort((a,b)=>{
     const ka=kindOf(byOrd[a][0].o), kb=kindOf(byOrd[b][0].o);
     return ka===kb ? a.localeCompare(b) : (ka==='Q'?-1:1);   // 퀵 먼저
@@ -1617,7 +1730,7 @@ function openCodeEntry(orderId){
        1 2                    ← 수량. 0/2 가 이렇게 깨져서 붙는다
        1,000원
    수량은 "위치 줄" 과 "가격 줄" 사이에 있고, 그 사이 마지막 숫자가 답이다. */
-const RE_LOC_KO = /(B\s*1|[\d.]+\s*F)\s*[-–—]\s*(곤도라|벽면|평대|창고|계산대)\s*[-–—]\s*(\d{1,3})\s*[-–—]\s*(\d{1,2})(?!\d)/;
+const RE_LOC_KO = /(B\s*1|[\d.]+\s*F)\s*[-–—]\s*(곤도라|벽면|평대|행사|시즌|창고|계산대)\s*[-–—]\s*(\d{1,3})\s*[-–—]\s*(\d{1,2})(?!\d)/;
 const RE_PRICE = /[\d,]{2,}\s*원/;
 /* 수량 "0 / 2" — 0 이 O·o·Q·D·() 로, / 가 | 로 깨져도 잡는다 */
 const RE_QTY = /(?:^|[^\dA-Za-z])[0OoQD()]\s*[\/／|]\s*(\d{1,3})(?!\d)/;
@@ -1807,7 +1920,18 @@ function drawReview(){
     + (res.no?'':' style="border-color:var(--no);background:#FFF7F6"')+'></label>'
     + '<label class="fld" style="margin:0"><span>구분</span>'
     + '<select id="sh-k"><option value="Q"'+(res.kind==='Q'?' selected':'')+'>퀵</option>'
-    + '<option value="P"'+(res.kind==='P'?' selected':'')+'>픽업</option></select></label></div>';
+    + '<option value="P"'+(res.kind==='P'?' selected':'')+'>픽업</option></select></label></div>'
+    // 피킹 중에 추가 주문이 들어오면, 안 끝난 시간대에 담아야 같이 돈다
+    + '<label class="fld"><span>시간대 — 여기에 담기면 안 끝난 주문과 함께 돕니다</span>'
+    + '<select id="sh-s">'
+    + ['am','pm'].map(v=>{
+        const left = S.orders.filter(o=>o.d===curDate() && o.s===v)
+          .reduce((n,o)=> n + o.l.filter(l=>!l.d).length, 0);
+        return '<option value="'+v+'"'+(v===pasteSess()?' selected':'')+'>'
+          + sessLabel(v) + ' ' + S.times[v][0] + '~' + S.times[v][1]
+          + (left ? '  (안 끝난 ' + left + '줄)' : '') + '</option>';
+      }).join('')
+    + '</select></label>';
 
   if(res.rows.length && !res.no){
     h += '<div class="verdict no" style="margin-bottom:12px">'
@@ -1933,6 +2057,7 @@ function commitShot(){
   if(!no){ toast('주문서 번호를 넣어주세요'); return; }
   if(/^\d+$/.test(no)) no = no.padStart(4,'0');
   const kind = $('#sh-k').value;
+  const sv = ($('#sh-s') && $('#sh-s').value) || sess;
   const rows = res.rows.filter(r=>r.on && r.code);
   if(!rows.length){ toast('담을 상품이 없습니다'); return; }
 
@@ -1946,9 +2071,9 @@ function commitShot(){
     }
   });
 
-  let o = S.orders.find(x=>x.no===no && x.s===sess && x.d===curDate());
+  let o = S.orders.find(x=>x.no===no && x.s===sv && x.d===curDate());
   const isNew = !o;
-  if(!o){ o = { id:uid(), no, k:kind, s:sess, d:curDate(), ts:Date.now(), l:[] }; S.orders.push(o); }
+  if(!o){ o = { id:uid(), no, k:kind, s:sv, d:curDate(), ts:Date.now(), l:[] }; S.orders.push(o); }
   else o.k = kind;
   let added=0;
   rows.forEach(r=>{
@@ -1957,6 +2082,7 @@ function commitShot(){
     else { const ln = {c:r.code, q:r.q}; if(r.stock != null) ln.st = r.stock; o.l.push(ln); added++; }
   });
   save(); closeSheet(); renderOrders(); renderPick(); renderCat();
+  if(sv !== sess){ sess = sv; }
   toast('주문 '+no+' 에 '+added+'줄 담음' + (newCat?' · 새 상품 '+newCat+'개 등록':''));
 }
 
