@@ -139,6 +139,19 @@ label.fld > span{display:block;font-size:12.5px;color:var(--text-3);margin-botto
 .lapbar b{display:block;font-size:14px;margin-bottom:1px}
 .lapbar.p{background:#EEF5FC;color:#1F6BB5}
 .lapbar.q{background:#EDF6EF;color:#2E7D46}
+.startbar{background:var(--surface);border:1.5px solid var(--border);border-radius:12px;
+  padding:11px 13px;margin-bottom:10px}
+.startbar .t{font-size:13px;color:var(--text-2);margin-bottom:8px}
+.startbar .t b{color:var(--text)}
+.startbar .fs{display:flex;gap:7px;flex-wrap:wrap}
+.startbar .f{flex:1 1 0;min-width:62px;border:1.5px solid var(--border);background:var(--surface-2);
+  border-radius:10px;padding:9px 4px;font-size:14px;font-weight:700;color:var(--text-2);
+  cursor:pointer;text-align:center;line-height:1.25}
+.startbar .f i{display:block;font-style:normal;font-size:11px;font-weight:600;opacity:.7;margin-top:1px}
+.startbar .f.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-strong)}
+.startbar .f.zero{opacity:.38}
+.startbar.big{border-color:var(--accent);background:var(--accent-soft)}
+.startbar.big .t{font-size:15px;font-weight:700;color:var(--accent-strong)}
 #scope-bar:empty{display:none}
 #scope-bar{display:flex;align-items:center;gap:8px;padding:8px 16px;background:#FFF6E9;
   border-bottom:1px solid #F0DFC4;font-size:13px;color:#8A5A12}
@@ -394,7 +407,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-12-c';
+const APP_VER = '2026-09-12-d';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -1337,6 +1350,26 @@ function renderPick(){
     h += '<div class="lapbar q"><b>픽업 '+pkTotal+'줄 완료</b>'
        + '이제 퀵만 남았습니다</div>';
   }
+  // 지금 서 있는 층 — 여기서부터 층 순서가 정해진다
+  const doneAny = all.some(x=>x.ln.d);
+  const leftBy = {};
+  rem.forEach(x=>{ const c = locOf(x.ln.c); if(c) leftBy[c.f] = (leftBy[c.f]||0) + 1; });
+  const order = RT.floors.filter((f,i,a)=>a.indexOf(f)===i);
+  h += '<div class="startbar' + (doneAny ? '' : ' big') + '">'
+     + '<div class="t">' + (doneAny
+         ? '지금 <b>' + esc(S.cur.f) + '</b> · 층 순서 ' + order.join(' → ')
+         : '어느 층에서 시작하시나요?')
+     + '</div><div class="fs">'
+     + S.floors.map(f=>{
+         const n = leftBy[f] || 0;
+         return '<button class="f' + (f===S.cur.f?' on':'') + (n?'':' zero') + '" data-cf="' + esc(f) + '">'
+              + esc(f) + '<i>' + (n ? n + '줄' : '없음') + '</i></button>';
+       }).join('')
+     + '</div>'
+     + (doneAny ? '' : '<div class="muted" style="margin-top:8px;font-size:12px">고른 층부터 돕니다 · '
+         + order.join(' → ') + '</div>')
+     + '</div>';
+
   h += '<div class="dest">';
   const stopN = RT.route.length + (held && !RT.route.some(x=>x.key===st.key && x.lap===st.lap) ? 1 : 0);
   h += '<div class="step">'+(held?'지금 이 자리':'다음 위치')+' · 남은 매대 '+stopN+'곳'
@@ -1390,6 +1423,12 @@ function renderPick(){
   }
   box.innerHTML = h;
 
+  $$('#pick-body [data-cf]').forEach(el=> el.onclick = ()=>{
+    const f = el.dataset.cf;
+    if(f === S.cur.f) return;
+    S.cur.f = f; HOLD = null; save(); renderPick();
+    toast(f + ' 에서 시작합니다');
+  });
   bindImgTap('#pick-body');
   // 상품을 누르면 체크만 된다. 자리는 "이 자리 완료"를 눌러야 넘어간다.
   $$('#pick-body .pk').forEach(el => el.onclick = ()=>{
