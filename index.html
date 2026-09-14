@@ -434,7 +434,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-14-h';
+const APP_VER = '2026-09-14-i';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -2197,6 +2197,20 @@ function poData(){ return S.po && Array.isArray(S.po.o) ? S.po : null; }
 /* 주소 뒤에 #po=... 로 온 데이터를 받는다 */
 function takePoFromUrl(){
   const h = location.hash || '';
+  const em = h.match(/[#&]poerr=([^&]+)/);
+  if(em){
+    const msg = decodeURIComponent(em[1]);
+    history.replaceState(null, '', location.pathname + location.search);
+    setTimeout(()=>{
+      sheet('<h2>가져오지 못했습니다</h2>'
+        + '<p class="sh-sub">단축어가 알려준 이유입니다</p>'
+        + '<div class="verdict no" style="margin-bottom:12px">' + esc(msg) + '</div>'
+        + '<div class="muted" style="margin-bottom:12px">이 문구를 그대로 보내주시면 원인을 찾을 수 있습니다.</div>'
+        + '<button class="btn gh" id="pe-x">닫기</button>');
+      $('#pe-x').onclick = closeSheet;
+    }, 400);
+    return false;
+  }
   const m = h.match(/[#&]po=([^&]+)/);
   if(!m) return false;
   try{
@@ -2296,10 +2310,17 @@ function poHelp(){
     + "if(!O.length){alert('배송준비중 주문이 없습니다');return;}location.href=U;"
     + "}catch(e){alert('가져오지 못했습니다: '+e);}})()";
 
-  /* 단축어는 결과가 빈 문자열이면 "지정된 URL 없음" 오류를 낸다.
-     주문이 없거나 실패해도 앱은 열리게 해서 무슨 일인지 보이게 한다. */
-  const SC = "(async()=>{const H='https://ktfsm9.github.io/daiso-map/';try{" + CORE
-    + "completion(O.length?U:H+'#po=W10%3D');}catch(e){completion(H);}})()";
+  /* 단축어는 결과가 비면 "지정된 URL 없음" 오류만 내고 이유를 안 알려준다.
+     그래서 어떤 경우에도 앱 주소를 돌려주고, 실패 사유는 주소에 실어 보낸다. */
+  const SC = "(async()=>{"
+    + "const H='https://ktfsm9.github.io/daiso-map/';"
+    + "const go=u=>{try{completion(u);}catch(e){}};"
+    + "try{"
+    + "if(!location.host.includes('daisomall')){go(H+'#poerr='+encodeURIComponent('픽업 관리 시스템 페이지가 아닙니다 ('+location.host+')'));return;}"
+    + CORE
+    + "go(O.length?U:H+'#po=W10%3D');"
+    + "}catch(e){go(H+'#poerr='+encodeURIComponent(String((e&&e.message)||e).slice(0,180)));}"
+    + "})()";
 
   const tab = (id,on)=> '<button class="c'+(on?' on':'')+'" data-ph="'+id+'">'+(id==='sc'?'단축어 (권장)':'즐겨찾기')+'</button>';
   const draw = (mode)=>{
