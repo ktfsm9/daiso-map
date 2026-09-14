@@ -170,6 +170,9 @@ label.fld > span{display:block;font-size:12.5px;color:var(--text-3);margin-botto
 .scopegrid .c.zero{opacity:.4}
 .scopegrid .c i{font-style:normal;font-size:12px;font-weight:700;opacity:.75}
 svg.plan{display:block;width:100%;background:var(--surface);touch-action:none}
+/* 높이를 정해 두어야 화면 비율이 정해지고, 그 비율에 맞춰 전체가 들어온다.
+   높이를 비워 두면 SVG 가 viewBox 비율을 그대로 따라가 세로로 한없이 길어진다. */
+svg.plan#svg{height:52vh;min-height:300px;max-height:620px}
 .plancard{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:11px}
 .planbar{display:flex;align-items:center;gap:7px;padding:9px 11px;border-top:1px solid var(--border);background:var(--surface-2)}
 .zoom{width:34px;height:34px;border-radius:9px;border:1px solid var(--border-strong);background:var(--surface);
@@ -420,7 +423,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-14-d';
+const APP_VER = '2026-09-14-e';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -1436,7 +1439,7 @@ function drawRoute(svg, cur){
   const f = cur.f;
   const same = RT.route.filter(s=>s.f===f && s.unit);
   const pts = same.map(s=>ctr(s.unit));
-  const box = fitBox(f);
+  const box = fitBox(f, aspectOf('#rmap'));
   svg.setAttribute('viewBox', box.join(' '));
   let extra = '';
   if(pts.length > 1){
@@ -2257,7 +2260,7 @@ function drawHistory(ses){
   const svg = $('#hmap');
   const here = stops.filter(st=>st.f===histFloor && st.unit);
   const pts = here.map(st=>ctr(st.unit));
-  svg.setAttribute('viewBox', fitBox(histFloor).join(' '));
+  svg.setAttribute('viewBox', fitBox(histFloor, aspectOf('#hmap')).join(' '));
   let extra = '';
   if(pts.length > 1)
     extra += '<polyline points="'+pts.map(p=>p[0]+','+p[1]).join(' ')+'" fill="none" stroke="#C96442" '
@@ -2392,15 +2395,24 @@ function drawPlan(svg, floor, opt){
     p += '<text x="'+(COLS*CELL/2)+'" y="'+(ROWS*CELL/2)+'" font-size="18" fill="#8C8A82" text-anchor="middle">평면도가 비어 있습니다</text>';
   svg.innerHTML = p;
 }
-function fitBox(floor){
+/* 그 SVG 가 화면에서 실제로 차지하는 가로:세로 비율 */
+function aspectOf(sel){
+  const el = $(sel);
+  if(!el) return 1.35;
+  const r = el.getBoundingClientRect();
+  return (r.width > 4 && r.height > 4) ? r.width / r.height : 1.35;
+}
+/* 그 층 전체가 들어오는 화면 범위.
+   화면 비율에 맞출 때는 "넓히기만" 한다 — 줄이면 바깥 유닛이 잘린다. */
+function fitBox(floor, R){
   const us = unitsOn(floor);
   if(!us.length) return [0,0,COLS*CELL,ROWS*CELL];
   let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
   us.forEach(u=>{x0=Math.min(x0,u.x);y0=Math.min(y0,u.y);x1=Math.max(x1,u.x+u.w);y1=Math.max(y1,u.y+u.h);});
   const m=2;
   let w=(x1-x0+m*2)*CELL, h=(y1-y0+m*2)*CELL;
-  const R=1.35;
-  if(w/h>R) h=w/R; else if(h/w>1/R*1.6) w=h*0.62;
+  R = (R && R > 0.05) ? R : 1.35;
+  if(w/h < R) w = h*R; else h = w/R;
   const cx=(x0+x1)/2*CELL, cy=(y0+y1)/2*CELL;
   return [cx-w/2, cy-h/2, w, h];
 }
@@ -2467,7 +2479,7 @@ function paint(){
   }
   drawPlan(s,S.ui.floor,{grid:edit,sel:selId,extra});
 }
-function fit(){ VB = fitBox(S.ui.floor); }
+function fit(){ VB = fitBox(S.ui.floor, aspectOf('#svg')); }
 $('#plan-mode').onclick = ()=>{ edit=!edit; selId=null; tool='선택'; preview=null; syncTools(); renderPlan(); };
 function syncTools(){ $$('.tool').forEach(b=>b.classList.toggle('on',b.dataset.t===tool)); }
 $$('.tool').forEach(b=> b.onclick = ()=>{
