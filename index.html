@@ -345,6 +345,11 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
       <div id="diag" class="muted" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);
         font-size:12px;line-height:1.6"></div>
     </div>
+    <div class="card">
+      <h3>지난 피킹 이력</h3>
+      <p class="muted" id="hist-stat" style="margin:0 0 12px"></p>
+      <button class="btn gh" id="hist-go">평면도에 그려 보기</button>
+    </div>
     <div class="card" id="ff-card" style="display:none">
       <h3>층 바로잡기</h3>
       <p class="muted" id="ff-stat" style="margin:0 0 12px"></p>
@@ -407,7 +412,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-12-e';
+const APP_VER = '2026-09-14-a';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -2189,6 +2194,110 @@ function commitShot(){
   toast('주문 '+no+' 에 '+added+'줄 담음' + (newCat?' · 새 상품 '+newCat+'개 등록':''));
 }
 
+/* ==================== 지난 피킹 이력 ====================
+   집을 때마다 순서 번호(ln.t)를 찍어두므로, 실제로 어떤 순서로 돌았는지 되살릴 수 있다. */
+function histSessions(){
+  const m = {};
+  S.orders.forEach(o=>{
+    o.l.forEach(ln=>{
+      if(!ln.d || ln.t == null) return;
+      const k = o.d + '|' + o.s;
+      (m[k] = m[k] || []).push({o, ln});
+    });
+  });
+  return Object.keys(m).sort().reverse().map(k=>{
+    const [d, sv] = k.split('|');
+    const rows = m[k].sort((a,b)=> a.ln.t - b.ln.t);
+    return { key:k, d, s:sv, rows, last: rows[rows.length-1].ln.t };
+  });
+}
+/* 줄들을 실제 순서대로 "들른 자리" 로 묶는다 */
+function histStops(rows){
+  const out = [];
+  rows.forEach(x=>{
+    const c = locOf(x.ln.c);
+    const key = c ? c.f+'|'+c.ut+'|'+c.uno : '?';
+    const last = out[out.length-1];
+    if(last && last.key === key) last.items.push(x);
+    else out.push({ key, f: c?c.f:'?', ut: c?c.ut:'', uno: c?c.uno:'',
+                    unit: c ? unitAt(c.f,c.ut,c.uno) : null, items:[x] });
+  });
+  out.forEach((st,i)=> st.n = i+1);
+  return out;
+}
+
+let histSel = null, histFloor = null;
+function openHistory(){
+  const ses = histSessions();
+  if(!ses.length){ toast('아직 기록이 없습니다'); return; }
+  if(!histSel || !ses.some(x=>x.key===histSel)) histSel = ses[0].key;
+  drawHistory(ses);
+}
+function drawHistory(ses){
+  const cur = ses.find(x=>x.key===histSel) || ses[0];
+  const stops = histStops(cur.rows);
+  const floors = S.floors.filter(f=> stops.some(st=>st.f===f));
+  if(!histFloor || !floors.includes(histFloor)) histFloor = (stops.find(st=>st.unit)||stops[0]).f;
+
+  // 층이 바뀌는 지점
+  const legs = [];
+  stops.forEach(st=>{
+    const L = legs[legs.length-1];
+    if(L && L.f === st.f) L.n++;
+    else legs.push({ f: st.f, n: 1 });
+  });
+
+  let h = '<h2>지난 피킹 이력</h2>'
+    + '<p class="sh-sub">실제로 돌았던 순서를 평면도에 그립니다</p>'
+    + '<div class="scopegrid">'
+    + ses.slice(0,10).map(x=>
+        '<button class="c'+(x.key===histSel?' on':'')+'" data-hs="'+esc(x.key)+'">'
+        + dateLabel(x.d).replace(/ (오늘|어제|내일)$/,'') + ' ' + sessLabel(x.s)
+        + ' <i>'+x.rows.length+'줄</i></button>').join('')
+    + '</div>'
+    + '<div class="verdict" style="margin:12px 0 10px"><b>'
+    + stops.length + '자리 · ' + cur.rows.length + '줄</b><br>'
+    + legs.map(l=> l.f+' '+l.n+'곳').join('  →  ') + '</div>'
+    + '<div class="scopegrid" style="margin-bottom:8px">'
+    + floors.map(f=>'<button class="c'+(f===histFloor?' on':'')+'" data-hf="'+esc(f)+'">'+esc(f)
+        + ' <i>'+stops.filter(st=>st.f===f).length+'곳</i></button>').join('')
+    + '</div>'
+    + '<div class="plancard"><svg class="plan" id="hmap" style="height:300px"></svg></div>'
+    + '<div class="card" style="padding:6px 14px;max-height:260px;overflow:auto">'
+    + stops.map(st=>
+        '<div class="itm"><div class="txt"><div class="nm">'
+        + '<span class="tierbadge">'+st.n+'</span> ' + esc(st.f) + ' ' + esc(st.ut) + ' ' + esc(st.uno)
+        + (st.unit ? '' : ' <span style="color:var(--text-3);font-weight:400">(평면도 없음)</span>')
+        + '</div><div class="mt">'
+        + st.items.map(x=>esc((S.cat[x.ln.c]||{}).n || x.ln.c)).join(' · ')
+        + '</div></div><div class="qty" style="font-size:15px">'+st.items.length+'</div></div>').join('')
+    + '</div>'
+    + '<button class="btn gh" id="h-x" style="margin-top:10px">닫기</button>';
+  sheet(h);
+
+  // 지도 그리기
+  const svg = $('#hmap');
+  const here = stops.filter(st=>st.f===histFloor && st.unit);
+  const pts = here.map(st=>ctr(st.unit));
+  svg.setAttribute('viewBox', fitBox(histFloor).join(' '));
+  let extra = '';
+  if(pts.length > 1)
+    extra += '<polyline points="'+pts.map(p=>p[0]+','+p[1]).join(' ')+'" fill="none" stroke="#C96442" '
+          + 'stroke-width="3" stroke-linejoin="round" stroke-linecap="round" opacity=".5"/>';
+  here.forEach((st,i)=>{
+    const p = pts[i], first = i===0;
+    extra += '<circle cx="'+p[0]+'" cy="'+p[1]+'" r="12" fill="'+(first?'#C96442':'#FFFFFF')
+          + '" stroke="#C96442" stroke-width="2"/>'
+          + '<text x="'+p[0]+'" y="'+p[1]+'" font-size="11" font-weight="700" text-anchor="middle" '
+          + 'dominant-baseline="central" fill="'+(first?'#FFFFFF':'#C96442')+'">'+st.n+'</text>';
+  });
+  drawPlan(svg, histFloor, {extra});
+
+  $$('#sheet-body [data-hs]').forEach(b=> b.onclick = ()=>{ histSel = b.dataset.hs; histFloor = null; drawHistory(ses); });
+  $$('#sheet-body [data-hf]').forEach(b=> b.onclick = ()=>{ histFloor = b.dataset.hf; drawHistory(ses); });
+  $('#h-x').onclick = closeSheet;
+}
+
 /* ==================== 상품 카탈로그 ==================== */
 let catFloor='all';
 function renderCat(){
@@ -2598,6 +2707,14 @@ function renderSet(){
     + (imgQueue.length || imgRunning ? '<br>가져오는 중… ' + (imgQueue.length + imgRunning) + '개 남음' : '')
     + (cacheBusy ? '<br>기기에 저장하는 중…' : '');
   $('#img-all').onclick = fetchAllImgs;
+
+  const hs = histSessions();
+  $('#hist-stat').innerHTML = hs.length
+    ? hs.length + '개 시간대 · ' + hs.reduce((n,x)=>n+x.rows.length,0) + '줄의 순서가 남아 있습니다<br>'
+      + '<span style="opacity:.75">가장 최근 : ' + dateLabel(hs[0].d).replace(/ (오늘|어제|내일)$/,'')
+      + ' ' + sessLabel(hs[0].s) + ' ' + hs[0].rows.length + '줄</span>'
+    : '아직 기록이 없습니다';
+  $('#hist-go').onclick = openHistory;
 
   // 층 바로잡기 — 평면도에 그린 매대 번호로 판단한다
   const fx = floorFixes();
