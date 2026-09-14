@@ -2281,7 +2281,7 @@ function renderPo(){
 function poHelp(){
   const BM = "javascript:(async()=>{try{const P=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(b)}).then(r=>r.json());"
     + "const z=n=>String(n).padStart(2,'0'),D=d=>d.getFullYear()+z(d.getMonth()+1)+z(d.getDate());"
-    + "const n=new Date(),a=new Date(Date.now()-1728e5);"
+    + "const n=new Date(Date.now()+864e5),a=new Date(Date.now()-1728e5);"   /* 끝을 내일로 잡아야 오늘 주문이 들어온다 */
     + "const L=await P('/api/po/pos/getQuickList',{orNo:'',clNo:'',orStsCdList:[],orTyCd:'',dlvFomCd:'',extraDisp:'',strtDttm:D(a),endDttm:D(n)});"
     + "const R=(L.data||[]).filter(o=>o.orStsCd==='40');const O=[];"
     + "for(const o of R){const d=await P('/api/po/pos/selStrOrDtl',{orNo:o.orNo});"
