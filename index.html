@@ -434,7 +434,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-14-f';
+const APP_VER = '2026-09-14-g';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -2279,36 +2279,74 @@ function renderPo(){
 }
 
 function poHelp(){
-  const BM = "javascript:(async()=>{try{const P=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(b)}).then(r=>r.json());"
+  /* 아이폰 사파리는 주소창에 붙여넣은 javascript: 를 막는다.
+     즐겨찾기에 저장해 그 항목을 눌러야만 실행된다.
+     단축어(공유 시트)로도 되고, 그쪽이 더 쉽다. */
+  const CORE =
+      "const P=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(b)}).then(r=>r.json());"
     + "const z=n=>String(n).padStart(2,'0'),D=d=>d.getFullYear()+z(d.getMonth()+1)+z(d.getDate());"
-    + "const n=new Date(Date.now()+864e5),a=new Date(Date.now()-1728e5);"   /* 끝을 내일로 잡아야 오늘 주문이 들어온다 */
+    + "const n=new Date(Date.now()+864e5),a=new Date(Date.now()-1728e5);"
     + "const L=await P('/api/po/pos/getQuickList',{orNo:'',clNo:'',orStsCdList:[],orTyCd:'',dlvFomCd:'',extraDisp:'',strtDttm:D(a),endDttm:D(n)});"
     + "const R=(L.data||[]).filter(o=>o.orStsCd==='40');const O=[];"
     + "for(const o of R){const d=await P('/api/po/pos/selStrOrDtl',{orNo:o.orNo});"
     + "O.push({no:o.orNo,t:(o.orCmptDtm||'').slice(0,16),q:o.orQySum,l:(d.data||[]).map(x=>[x.pdNo,x.orQy,x.exhPdNm])});}"
-    + "if(!O.length){alert('배송준비중 주문이 없습니다');return;}"
-    + "location.href='https://ktfsm9.github.io/daiso-map/#po='+encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(O)))));"
+    + "const U='https://ktfsm9.github.io/daiso-map/#po='+encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(O)))));";
+
+  const BM = "javascript:(async()=>{try{" + CORE
+    + "if(!O.length){alert('배송준비중 주문이 없습니다');return;}location.href=U;"
     + "}catch(e){alert('가져오지 못했습니다: '+e);}})()";
-  sheet('<h2>주문 미리 받기</h2>'
-    + '<p class="sh-sub">다이소몰 매장픽업 관리 시스템에서 배송준비중 주문을 가져옵니다</p>'
-    + '<div class="verdict" style="margin-bottom:12px"><b>처음 한 번만 설정</b><br>'
-    + '1. 아래 명령을 복사합니다<br>'
-    + '2. 사파리에서 아무 페이지나 <b>즐겨찾기에 추가</b><br>'
-    + '3. 즐겨찾기 편집 → 그 항목의 <b>주소를 지우고</b> 붙여넣기<br>'
-    + '4. 이름을 "주문 가져오기" 로 바꿉니다</div>'
-    + '<textarea readonly id="bm" style="width:100%;height:120px;font-size:10px;line-height:1.4">'
-    + esc(BM) + '</textarea>'
-    + '<button class="btn pri" id="bm-copy" style="margin-top:9px">명령 복사</button>'
-    + '<div class="verdict" style="margin:12px 0"><b>쓸 때</b><br>'
-    + '매장픽업 관리 시스템에 로그인한 상태에서<br>'
-    + '주소창 → 즐겨찾기 → "주문 가져오기" 를 누르면<br>'
-    + '이 앱으로 넘어오면서 주문이 담깁니다</div>'
-    + '<button class="btn gh" id="bm-x">닫기</button>');
-  $('#bm-copy').onclick = async ()=>{
-    try{ await navigator.clipboard.writeText(BM); toast('복사했습니다'); }
-    catch(e){ $('#bm').select(); toast('길게 눌러 전체선택 후 복사하세요'); }
+
+  const SC = "(async()=>{try{" + CORE
+    + "completion(O.length?U:'');}catch(e){completion('');}})()";
+
+  const tab = (id,on)=> '<button class="c'+(on?' on':'')+'" data-ph="'+id+'">'+(id==='sc'?'단축어 (권장)':'즐겨찾기')+'</button>';
+  const draw = (mode)=>{
+    let h = '<h2>주문 미리 받기</h2>'
+      + '<p class="sh-sub">다이소몰 매장픽업 관리 시스템에서 배송준비중 주문을 가져옵니다</p>'
+      + '<div class="verdict no" style="margin-bottom:12px"><b>주소창에 붙여넣으면 안 됩니다</b><br>'
+      + '사파리가 막습니다. 아래 두 방법 중 하나를 쓰세요.</div>'
+      + '<div class="scopegrid">' + tab('sc', mode==='sc') + tab('bm', mode==='bm') + '</div>';
+
+    if(mode === 'sc'){
+      h += '<div class="verdict" style="margin:10px 0"><b>처음 한 번만</b><br>'
+        + '1. 아래 명령을 복사합니다<br>'
+        + '2. <b>단축어</b> 앱 → 새 단축어(+)<br>'
+        + '3. "<b>웹 페이지에서 JavaScript 실행</b>" 추가 → 명령 붙여넣기<br>'
+        + '4. 그 아래 "<b>URL 열기</b>" 추가 (입력은 위 결과)<br>'
+        + '5. 단축어 세부사항 → <b>공유 시트에 표시</b> 켜기<br>'
+        + '6. 이름을 "주문 가져오기" 로</div>'
+        + '<textarea readonly id="bm" style="width:100%;height:110px;font-size:10px;line-height:1.4">'
+        + esc(SC) + '</textarea>'
+        + '<button class="btn pri" id="bm-copy" style="margin-top:9px">명령 복사</button>'
+        + '<div class="verdict" style="margin:12px 0"><b>쓸 때</b><br>'
+        + '픽업 관리 시스템에서 <b>공유 버튼</b> → "주문 가져오기"</div>';
+    } else {
+      h += '<div class="verdict" style="margin:10px 0"><b>처음 한 번만</b><br>'
+        + '1. 아래 명령을 복사합니다<br>'
+        + '2. 아무 페이지나 <b>공유 → 북마크 추가</b><br>'
+        + '3. 사파리 <b>책 모양 아이콘</b> → 편집 → 그 북마크 선택<br>'
+        + '4. <b>주소 칸</b>을 지우고 명령 붙여넣기<br>'
+        + '5. 이름을 "주문 가져오기" 로 → 완료</div>'
+        + '<textarea readonly id="bm" style="width:100%;height:110px;font-size:10px;line-height:1.4">'
+        + esc(BM) + '</textarea>'
+        + '<button class="btn pri" id="bm-copy" style="margin-top:9px">명령 복사</button>'
+        + '<div class="verdict" style="margin:12px 0"><b>쓸 때</b><br>'
+        + '픽업 관리 시스템에서 <b>책 모양 아이콘</b> → "주문 가져오기"<br>'
+        + '<span style="opacity:.75">주소창에 치면 안 됩니다</span></div>';
+    }
+    h += '<div class="muted" style="margin-bottom:10px">두 방법 모두 로그인된 그 페이지 안에서 돌기 때문에 '
+      + '아이디·비밀번호를 어디에도 저장하지 않습니다.</div>'
+      + '<button class="btn gh" id="bm-x">닫기</button>';
+    sheet(h);
+    $$('#sheet-body [data-ph]').forEach(b=> b.onclick = ()=> draw(b.dataset.ph));
+    $('#bm-copy').onclick = async ()=>{
+      const t = mode==='sc' ? SC : BM;
+      try{ await navigator.clipboard.writeText(t); toast('복사했습니다'); }
+      catch(e){ $('#bm').select(); toast('길게 눌러 전체선택 후 복사하세요'); }
+    };
+    $('#bm-x').onclick = closeSheet;
   };
-  $('#bm-x').onclick = closeSheet;
+  draw('sc');
 }
 $('#po-help').onclick = poHelp;
 
