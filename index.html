@@ -412,7 +412,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-14-b';
+const APP_VER = '2026-09-14-c';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -435,8 +435,6 @@ function blank(){
            cur:{f:'1F'}, img:{}, times:{am:['10:00','13:30'], pm:['15:00','18:30']},
            /* 지시상품내역이 1.5층 상품을 1F 로 찍어주므로, 번호로 구분한다 */
            fno:{'1.5F':['072','073']},
-           /* 오후 7시부터는 오전·오후를 한 번에 본다 */
-           mergeAt:'19:00',
            /* 픽업은 다른 직원이 맡으므로 기본은 퀵만 본다 */
            ui:{floor:'1F', date:today(), pf:[], po:[], pk:'Q'} };
 }
@@ -511,7 +509,6 @@ function fill(o){
   for(const k in b) if(o[k] === undefined) o[k] = b[k];
   o.times = o.times || b.times;
   o.fno = o.fno || b.fno;
-  o.mergeAt = o.mergeAt || b.mergeAt;
   o.cur = o.cur || b.cur;
   o.ui = o.ui || b.ui;
   // 날짜가 없던 주문은 담은 날짜로 채운다
@@ -920,8 +917,6 @@ function curDate(){ return S.ui.date || today(); }
 /* ===== 오전 / 오후 / 통합 =====
    피킹 중에 주문이 수시로 들어오고, 오전 것이 안 끝난 채 오후로 넘어가기도 한다.
    S.ui.ps : '' = 지금 시간대만 · 'both' = 오전+오후 함께 */
-function mergeTime(){ return hm(S.mergeAt || '19:00'); }
-function autoMerge(){ return nowMin() >= mergeTime(); }   // 오후 7시부터 자동 통합
 function bothOn(){ return S.ui.ps === 'both'; }   // 직접 고를 때만
 function sessLabelNow(){ return bothOn() ? '오전+오후' : sessLabel(sess); }
 
@@ -942,48 +937,6 @@ function pasteSess(){
   if(b && !a) return 'pm';
   return sess;
 }
-function mergeName(sv){ return sv==='am' ? '오전' : '오후'; }
-
-/* 그 시간대의 주문서들 — 먼저 들어온 것이 "본 주문건" */
-function sessionOrders(d, sv){
-  return S.orders.filter(o=> o.d===d && o.s===sv).sort((a,b)=> (a.ts||0) - (b.ts||0));
-}
-/* 추가 주문건들을 본 주문건으로 흡수시킨다 */
-function mergeSession(d, sv){
-  const src = sessionOrders(d, sv);
-  if(src.length < 2) return 0;
-  const box = src[0];                                  // 본 주문건
-  // 본 주문건의 줄에도 출처를 박아둔다 (묶인 뒤에도 구분이 보이도록)
-  box.l.forEach(ln=>{ if(!ln.no) ln.no = box.no; if(!ln.k) ln.k = kindOf(box); });
-  let n = 0;
-  src.slice(1).forEach(o=>{
-    o.l.forEach(ln=>{
-      box.l.push(Object.assign({}, ln, { no: ln.no || o.no, k: ln.k || kindOf(o) }));
-      n++;
-    });
-  });
-  const ids = new Set(src.slice(1).map(o=>o.id));
-  S.orders = S.orders.filter(o=> !ids.has(o.id));
-  box.m = (box.m || 0) + src.length - 1;                // 흡수한 건수
-  return n;
-}
-/* 마감(기본 19:00) 이 지나면 시간대마다 본 주문건으로 묶는다 */
-let mergeChecked = '';
-function autoMergeOrders(){
-  const d = today();
-  if(nowMin() < mergeTime() || mergeChecked === d) return;
-  mergeChecked = d;
-  let n = 0; const log = [];
-  ['am','pm'].forEach(sv=>{
-    const c = sessionOrders(d, sv).length;
-    if(c >= 2){ const k = mergeSession(d, sv); if(k){ n += k; log.push(mergeName(sv)+' '+c+'건'); } }
-  });
-  if(n){
-    writeNow();
-    setTimeout(()=> toast(log.join(' · ') + ' → 본 주문건으로 묶었습니다 (' + n + '줄 흡수)'), 600);
-  }
-}
-
 /* 지금 시간대 말고 다른 시간대에 안 끝난 줄이 있나 */
 function otherSessLeft(){
   const o = sess==='am' ? 'pm' : 'am';
@@ -1285,7 +1238,6 @@ function holdStop(hold){
            items, lap: hold.lap, held:true };
 }
 function renderPick(){
-  autoMergeOrders();
   RT = buildRoute();
   renderScopeBar();
   // 범위를 골랐으면 그 안에서만 세고, 아니면 전체
@@ -1358,7 +1310,7 @@ function renderPick(){
     const am = all.filter(x=>x.o.s==='am').length, pm = all.length - am;
     h += '<div class="lapbar q" style="background:#EFEDE4;color:#5A584F">'
        + '<b>오전 + 오후 함께</b>오전 ' + am + '줄 · 오후 ' + pm + '줄을 한 번에 돕니다'
-       + (autoMerge() ? '' : ' (직접 고르심)') + '</div>';
+       + '</div>';
   } else if(otherSessLeft()){
     h += '<div class="lapbar q" style="background:#FFF6E9;color:#8A5A12">'
        + '<b>' + (sess==='am'?'오후':'오전') + '에 안 끝난 ' + otherSessLeft() + '줄이 있습니다</b>'
@@ -1533,8 +1485,7 @@ function openScope(){
 
     h += '<h3 style="margin:16px 0 0">시간대</h3>'
       + '<div class="muted" style="margin-top:2px">'
-      + (autoMerge() ? S.mergeAt + ' 가 지나 자동으로 합쳐 보고 있습니다'
-                     : S.mergeAt + ' 이 지나면 자동으로 합쳐집니다') + '</div>'
+      + '오전 것이 안 끝난 채 오후가 시작됐을 때 함께 돌 수 있습니다</div>'
       + '<div class="scopegrid">'
       + [['one', sessLabel(sess) + '만'], ['both','오전+오후 함께']].map(([v,t])=>{
           const on = (v==='both') === bothOn();
