@@ -328,16 +328,6 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 </section>
 
 <!-- ============ 설정 ============ -->
-<!-- ============ 예약 (다이소몰에서 미리 받은 주문) ============ -->
-<section id="v-po" class="view">
-  <div class="head">
-    <div><h1>미리 보기</h1><div class="sub" id="po-sub"></div></div>
-    <div class="grow"></div>
-    <button class="btn gh sm" id="po-help" style="width:auto">받는 법</button>
-  </div>
-  <div class="scroll" id="po-body"></div>
-</section>
-
 <section id="v-set" class="view">
   <div class="head"><div><h1>설정</h1><div class="sub">시간대와 백업</div></div></div>
   <div class="scroll">
@@ -413,8 +403,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 <nav class="tabs">
   <button class="tab on" data-v="v-pick"><svg viewBox="0 0 24 24"><path d="M3 6h2l2.5 10.5a2 2 0 0 0 2 1.5h7a2 2 0 0 0 2-1.5L20 9H6"/><circle cx="10" cy="20" r="1.2"/><circle cx="17" cy="20" r="1.2"/></svg>피킹<span class="n" id="tab-n" style="display:none">0</span></button>
   <button class="tab" data-v="v-order"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>주문</button>
-  <button class="tab" data-v="v-po"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>미리<span class="n" id="tab-po" style="display:none">0</span></button>
-      <button class="tab" data-v="v-plan"><svg viewBox="0 0 24 24"><path d="M3 5.5 9 3l6 2.5L21 3v15.5L15 21l-6-2.5L3 21z"/><path d="M9 3v15.5M15 5.5V21"/></svg>평면도</button>
+  <button class="tab" data-v="v-plan"><svg viewBox="0 0 24 24"><path d="M3 5.5 9 3l6 2.5L21 3v15.5L15 21l-6-2.5L3 21z"/><path d="M9 3v15.5M15 5.5V21"/></svg>평면도</button>
   <button class="tab" data-v="v-cat"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7 9h10M7 13h7"/></svg>상품</button>
   <button class="tab" data-v="v-set"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg>설정</button>
 </nav>
@@ -434,7 +423,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-14-j';
+const APP_VER = '2026-09-14-k';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -2186,217 +2175,6 @@ function commitShot(){
   toast('주문 '+no+' 에 '+added+'줄 담음' + (newCat?' · 새 상품 '+newCat+'개 등록':''));
 }
 
-/* ==================== 미리 보기 ====================
-   다이소몰 매장픽업 관리 시스템은 매장관리 앱보다 15~30분 일찍 주문을 보여준다.
-   그 목록을 즐겨찾기 버튼(북마클릿)으로 가져와 여기에 담는다.
-
-   앱이 직접 불러올 수는 없다 — 다른 사이트의 로그인 정보를 브라우저가 넘겨주지 않는다.
-   그래서 그 사이트 안에서 도는 북마클릿이 주소 뒤에 붙여 보내준다. */
-function poData(){ return S.po && Array.isArray(S.po.o) ? S.po : null; }
-
-/* 주소 뒤에 #po=... 로 온 데이터를 받는다 */
-function takePoFromUrl(){
-  const h = location.hash || '';
-  const em = h.match(/[#&]poerr=([^&]+)/);
-  if(em){
-    const msg = decodeURIComponent(em[1]);
-    history.replaceState(null, '', location.pathname + location.search);
-    setTimeout(()=>{
-      sheet('<h2>가져오지 못했습니다</h2>'
-        + '<p class="sh-sub">단축어가 알려준 이유입니다</p>'
-        + '<div class="verdict no" style="margin-bottom:12px">' + esc(msg) + '</div>'
-        + '<div class="muted" style="margin-bottom:12px">이 문구를 그대로 보내주시면 원인을 찾을 수 있습니다.</div>'
-        + '<button class="btn gh" id="pe-x">닫기</button>');
-      $('#pe-x').onclick = closeSheet;
-    }, 400);
-    return false;
-  }
-  const m = h.match(/[#&]po=([^&]+)/);
-  if(!m) return false;
-  try{
-    const json = decodeURIComponent(escape(atob(decodeURIComponent(m[1]))));
-    const arr = JSON.parse(json);
-    if(!Array.isArray(arr)) return false;
-    S.po = { t: Date.now(), o: arr };
-    writeNow();
-    history.replaceState(null, '', location.pathname + location.search);
-    return true;
-  }catch(e){
-    history.replaceState(null, '', location.pathname + location.search);
-    toast('주문을 읽지 못했습니다');
-    return false;
-  }
-}
-
-function poAgo(t){
-  const m = Math.round((Date.now()-t)/60000);
-  if(m < 1) return '방금';
-  if(m < 60) return m + '분 전';
-  return Math.round(m/60) + '시간 전';
-}
-
-function renderPo(){
-  const d = poData();
-  const tn = $('#tab-po');
-  const box = $('#po-body');
-  if(!d || !d.o.length){
-    $('#po-sub').textContent = '아직 받은 주문이 없습니다';
-    tn.style.display = 'none';
-    box.innerHTML = '<div class="empty"><b>다이소몰에서 주문을 가져와 주세요</b>'
-      + '매장픽업 관리 시스템에서 즐겨찾기 버튼을 한 번 누르면<br>'
-      + '배송준비중 주문이 여기로 들어옵니다.<br>'
-      + '매장관리 앱보다 15~30분 먼저 볼 수 있습니다.</div>'
-      + '<button class="btn pri" id="po-how">받는 법 보기</button>';
-    $('#po-how').onclick = poHelp;
-    return;
-  }
-  const lines = d.o.reduce((n,o)=>n + o.l.length, 0);
-  const qty   = d.o.reduce((n,o)=>n + o.l.reduce((a,x)=>a+(x[1]||1),0), 0);
-  const known = d.o.reduce((n,o)=>n + o.l.filter(x=>S.cat[x[0]] && S.cat[x[0]].uno).length, 0);
-  $('#po-sub').innerHTML = d.o.length + '건 · ' + lines + '줄 · ' + qty + '개'
-    + ' <span style="opacity:.7">· ' + poAgo(d.t) + '</span>';
-  tn.style.display = ''; tn.textContent = d.o.length;
-
-  let h = '<div class="verdict" style="margin-bottom:10px">'
-    + '<b>위치를 아는 상품 ' + known + ' / ' + lines + '줄</b><br>'
-    + '나머지는 매장관리 앱 주문서가 뜨면 위치가 붙습니다</div>';
-
-  d.o.forEach((o,oi)=>{
-    const t = (o.t||'').replace('T',' ').slice(5);
-    h += '<div class="card" style="padding:11px 13px;margin-bottom:10px">'
-      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
-      + '<b style="font-size:15px">' + esc(o.no.slice(-5)) + '</b>'
-      + '<span class="muted" style="font-size:12px">' + esc(t) + '</span>'
-      + '<span class="muted" style="margin-left:auto;font-size:12px">' + o.l.length + '줄 · ' + (o.q||'') + '개</span>'
-      + '</div>';
-    o.l.forEach(x=>{
-      const code = x[0], q = x[1]||1, nm = x[2]||code;
-      const c = S.cat[code];
-      wantImg(code);
-      h += '<div class="itm">'
-        + '<div class="thwrap" data-img="' + esc(code) + '">' + thumb(code, 40) + '</div>'
-        + '<div class="txt"><div class="nm">' + esc(nm) + '</div>'
-        + '<div class="mt">' + esc(code) + ' · '
-        + (c && c.uno ? '<b style="color:var(--ok)">' + esc(locStr(c)) + '</b>'
-                      : '<span style="color:var(--text-3)">위치 모름</span>')
-        + '</div></div><div class="qty">' + q + '</div></div>';
-    });
-    h += '</div>';
-  });
-  h += '<button class="btn gh" id="po-clear" style="margin-top:4px">목록 비우기</button>';
-  box.innerHTML = h;
-  bindImgTap('#po-body');
-  $('#po-clear').onclick = ()=>{
-    if(!confirm('미리 받은 주문 목록을 지울까요?')) return;
-    S.po = null; writeNow(); renderPo(); toast('비웠습니다');
-  };
-}
-
-function poHelp(){
-  /* 아이폰 사파리는 주소창에 붙여넣은 javascript: 를 막는다.
-     즐겨찾기에 저장해 그 항목을 눌러야만 실행된다.
-     단축어(공유 시트)로도 되고, 그쪽이 더 쉽다. */
-  const CORE =
-      "const P=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(b)}).then(r=>r.json());"
-    + "const z=n=>String(n).padStart(2,'0'),D=d=>d.getFullYear()+z(d.getMonth()+1)+z(d.getDate());"
-    + "const n=new Date(Date.now()+864e5),a=new Date(Date.now()-1728e5);"
-    + "const L=await P('/api/po/pos/getQuickList',{orNo:'',clNo:'',orStsCdList:[],orTyCd:'',dlvFomCd:'',extraDisp:'',strtDttm:D(a),endDttm:D(n)});"
-    + "const R=(L.data||[]).filter(o=>o.orStsCd==='40');const O=[];"
-    + "for(const o of R){const d=await P('/api/po/pos/selStrOrDtl',{orNo:o.orNo});"
-    + "O.push({no:o.orNo,t:(o.orCmptDtm||'').slice(0,16),q:o.orQySum,l:(d.data||[]).map(x=>[x.pdNo,x.orQy,x.exhPdNm])});}"
-    + "const U='https://ktfsm9.github.io/daiso-map/#po='+encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(O)))));";
-
-  const BM = "javascript:(async()=>{try{" + CORE
-    + "if(!O.length){alert('배송준비중 주문이 없습니다');return;}location.href=U;"
-    + "}catch(e){alert('가져오지 못했습니다: '+e);}})()";
-
-  /* 단축어는 결과가 비면 "지정된 URL 없음" 오류만 내고 이유를 안 알려준다.
-     그래서 어떤 경우에도 앱 주소를 돌려주고, 실패 사유는 주소에 실어 보낸다. */
-  /* 단축어는 결과가 비면 "지정된 URL 없음" 만 내고 이유를 안 알려준다.
-     그래서 (1) 무슨 일이 있어도 8초 안에 답을 돌려주고
-            (2) 실패 사유를 주소에 실어 보낸다. */
-  const SC = "(()=>{"
-    + "const H='https://ktfsm9.github.io/daiso-map/';"
-    + "let done=false;"
-    + "const go=u=>{if(done)return;done=true;try{completion(u);}catch(e){}};"
-    + "setTimeout(()=>go(H+'#poerr='+encodeURIComponent('시간이 오래 걸려 중단했습니다 (통신이 느리거나 막힌 듯합니다)')),8000);"
-    + "(async()=>{try{"
-    + "if(!/daisomall/.test(location.host)){go(H+'#poerr='+encodeURIComponent('픽업 관리 시스템 페이지가 아닙니다: '+location.host));return;}"
-    + CORE
-    + "go(O.length?U:H+'#po=W10%3D');"
-    + "}catch(e){go(H+'#poerr='+encodeURIComponent('오류: '+String((e&&e.message)||e).slice(0,150)));}})();"
-    + "})()";
-
-  /* 동작 자체가 도는지 보는 최소 시험 — 통신 없이 바로 답한다 */
-  const TEST = "completion('https://ktfsm9.github.io/daiso-map/#poerr='"
-    + "+encodeURIComponent('시험 성공 · 여기는 '+location.host))";
-
-  const tab = (id,on)=> '<button class="c'+(on?' on':'')+'" data-ph="'+id+'">'+(id==='sc'?'단축어 (권장)':'즐겨찾기')+'</button>';
-  const draw = (mode)=>{
-    let h = '<h2>주문 미리 받기</h2>'
-      + '<p class="sh-sub">다이소몰 매장픽업 관리 시스템에서 배송준비중 주문을 가져옵니다</p>'
-      + '<div class="verdict no" style="margin-bottom:12px"><b>주소창에 붙여넣으면 안 됩니다</b><br>'
-      + '사파리가 막습니다. 아래 두 방법 중 하나를 쓰세요.</div>'
-      + '<div class="scopegrid">' + tab('sc', mode==='sc') + tab('bm', mode==='bm') + '</div>';
-
-    if(mode === 'sc'){
-      h += '<div class="verdict" style="margin:10px 0"><b>처음 한 번만</b><br>'
-        + '1. 아래 명령을 복사합니다<br>'
-        + '2. <b>단축어</b> 앱 → 새 단축어(+)<br>'
-        + '3. "<b>웹 페이지에서 JavaScript 실행</b>" 추가 → 명령 붙여넣기<br>'
-        + '4. 그 아래 "<b>URL 열기</b>" 추가 (입력은 위 결과)<br>'
-        + '5. 단축어 세부사항 → <b>공유 시트에 표시</b> 켜기<br>'
-        + '6. 이름을 "주문 가져오기" 로</div>'
-        + '<textarea readonly id="bm" style="width:100%;height:110px;font-size:10px;line-height:1.4">'
-        + esc(SC) + '</textarea>'
-        + '<button class="btn pri" id="bm-copy" style="margin-top:9px">명령 복사</button>'
-        + '<div class="verdict no" style="margin:12px 0"><b>단축어 앱에서 바로 누르면 안 됩니다</b><br>'
-        + '"지정된 URL 없음" 오류가 납니다. 읽어올 웹 페이지가 없기 때문입니다.</div>'
-        + '<div class="verdict" style="margin:12px 0"><b>쓸 때</b><br>'
-        + '1. 사파리로 <b>픽업 관리 시스템</b>을 엽니다 (로그인된 상태)<br>'
-        + '2. 화면 아래 <b>공유 버튼</b>(↑) 을 누릅니다<br>'
-        + '3. 목록에서 <b>"주문 가져오기"</b> 를 누릅니다<br>'
-        + '<span style="opacity:.75">목록에 없으면 아래로 내려 "동작 편집"에서 켜주세요</span></div>'
-        + '<div class="verdict" style="margin:12px 0"><b>계속 "지정된 URL 없음" 이 나오면</b><br>'
-        + '아래 시험용 명령으로 바꿔 한 번 실행해 보세요.<br>'
-        + '통신 없이 바로 답하므로, 이것도 안 되면 단축어 설정 문제입니다.</div>'
-        + '<textarea readonly id="bmt" style="width:100%;height:64px;font-size:10px;line-height:1.4">'
-        + esc(TEST) + '</textarea>'
-        + '<button class="btn gh" id="bmt-copy" style="margin-top:8px">시험용 명령 복사</button>';
-    } else {
-      h += '<div class="verdict" style="margin:10px 0"><b>처음 한 번만</b><br>'
-        + '1. 아래 명령을 복사합니다<br>'
-        + '2. 아무 페이지나 <b>공유 → 북마크 추가</b><br>'
-        + '3. 사파리 <b>책 모양 아이콘</b> → 편집 → 그 북마크 선택<br>'
-        + '4. <b>주소 칸</b>을 지우고 명령 붙여넣기<br>'
-        + '5. 이름을 "주문 가져오기" 로 → 완료</div>'
-        + '<textarea readonly id="bm" style="width:100%;height:110px;font-size:10px;line-height:1.4">'
-        + esc(BM) + '</textarea>'
-        + '<button class="btn pri" id="bm-copy" style="margin-top:9px">명령 복사</button>'
-        + '<div class="verdict" style="margin:12px 0"><b>쓸 때</b><br>'
-        + '픽업 관리 시스템에서 <b>책 모양 아이콘</b> → "주문 가져오기"<br>'
-        + '<span style="opacity:.75">주소창에 치면 안 됩니다</span></div>';
-    }
-    h += '<div class="muted" style="margin-bottom:10px">두 방법 모두 로그인된 그 페이지 안에서 돌기 때문에 '
-      + '아이디·비밀번호를 어디에도 저장하지 않습니다.</div>'
-      + '<button class="btn gh" id="bm-x">닫기</button>';
-    sheet(h);
-    $$('#sheet-body [data-ph]').forEach(b=> b.onclick = ()=> draw(b.dataset.ph));
-    if($('#bmt-copy')) $('#bmt-copy').onclick = async ()=>{
-      try{ await navigator.clipboard.writeText(TEST); toast('시험용 명령을 복사했습니다'); }
-      catch(e){ $('#bmt').select(); toast('길게 눌러 전체선택 후 복사하세요'); }
-    };
-    $('#bm-copy').onclick = async ()=>{
-      const t = mode==='sc' ? SC : BM;
-      try{ await navigator.clipboard.writeText(t); toast('복사했습니다'); }
-      catch(e){ $('#bm').select(); toast('길게 눌러 전체선택 후 복사하세요'); }
-    };
-    $('#bm-x').onclick = closeSheet;
-  };
-  draw('sc');
-}
-$('#po-help').onclick = poHelp;
-
 /* ==================== 지난 피킹 이력 ====================
    집을 때마다 순서 번호(ln.t)를 찍어두므로, 실제로 어떤 순서로 돌았는지 되살릴 수 있다. */
 function histSessions(){
@@ -3104,13 +2882,12 @@ function go(v){
   if(v==='v-pick') renderPick();
   if(v==='v-order') renderOrders();
   if(v==='v-plan'){ fit(); renderPlan(); }
-  if(v==='v-po') renderPo();
   if(v==='v-cat') renderCat();
   if(v==='v-set') renderSet();
   window.scrollTo(0,0);
 }
 $$('.tab').forEach(b=> b.onclick=()=>go(b.dataset.v));
-function renderAll(){ renderPick(); renderOrders(); renderPo(); renderPlan(); renderCat(); renderSet(); }
+function renderAll(){ renderPick(); renderOrders(); renderPlan(); renderCat(); renderSet(); }
 
 /* ==================== 첫 실행 시드 ==================== */
 /* 앱을 열 때마다 카탈로그에 없는 상품만 채워 넣는다.
@@ -3266,14 +3043,8 @@ idbLoadAll().then(()=>{ renderCat(); renderPick(); renderSet(); });
 
 if(!S.floors.includes(S.ui.floor)) S.ui.floor = S.floors[0];
 if(!S.floors.includes(S.cur.f)) S.cur.f = S.floors[0];
-// 북마클릿이 주소 뒤에 붙여 보낸 주문을 받는다
-const gotPo = takePoFromUrl();
 fit();
 renderPick();
-renderPo();
-if(gotPo){
-  setTimeout(()=>{ go('v-po'); toast(S.po.o.length + '건을 받았습니다'); }, 300);
-}
 setInterval(()=>{ if($('#v-pick').classList.contains('on')) renderPick(); }, 60000);
 
 /* ==================== 새 버전 확인 ====================
