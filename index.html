@@ -434,7 +434,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-14-g';
+const APP_VER = '2026-09-14-h';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -2296,8 +2296,10 @@ function poHelp(){
     + "if(!O.length){alert('배송준비중 주문이 없습니다');return;}location.href=U;"
     + "}catch(e){alert('가져오지 못했습니다: '+e);}})()";
 
-  const SC = "(async()=>{try{" + CORE
-    + "completion(O.length?U:'');}catch(e){completion('');}})()";
+  /* 단축어는 결과가 빈 문자열이면 "지정된 URL 없음" 오류를 낸다.
+     주문이 없거나 실패해도 앱은 열리게 해서 무슨 일인지 보이게 한다. */
+  const SC = "(async()=>{const H='https://ktfsm9.github.io/daiso-map/';try{" + CORE
+    + "completion(O.length?U:H+'#po=W10%3D');}catch(e){completion(H);}})()";
 
   const tab = (id,on)=> '<button class="c'+(on?' on':'')+'" data-ph="'+id+'">'+(id==='sc'?'단축어 (권장)':'즐겨찾기')+'</button>';
   const draw = (mode)=>{
@@ -2318,8 +2320,13 @@ function poHelp(){
         + '<textarea readonly id="bm" style="width:100%;height:110px;font-size:10px;line-height:1.4">'
         + esc(SC) + '</textarea>'
         + '<button class="btn pri" id="bm-copy" style="margin-top:9px">명령 복사</button>'
+        + '<div class="verdict no" style="margin:12px 0"><b>단축어 앱에서 바로 누르면 안 됩니다</b><br>'
+        + '"지정된 URL 없음" 오류가 납니다. 읽어올 웹 페이지가 없기 때문입니다.</div>'
         + '<div class="verdict" style="margin:12px 0"><b>쓸 때</b><br>'
-        + '픽업 관리 시스템에서 <b>공유 버튼</b> → "주문 가져오기"</div>';
+        + '1. 사파리로 <b>픽업 관리 시스템</b>을 엽니다 (로그인된 상태)<br>'
+        + '2. 화면 아래 <b>공유 버튼</b>(↑) 을 누릅니다<br>'
+        + '3. 목록에서 <b>"주문 가져오기"</b> 를 누릅니다<br>'
+        + '<span style="opacity:.75">목록에 없으면 아래로 내려 "동작 편집"에서 켜주세요</span></div>';
     } else {
       h += '<div class="verdict" style="margin:10px 0"><b>처음 한 번만</b><br>'
         + '1. 아래 명령을 복사합니다<br>'
