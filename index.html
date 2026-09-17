@@ -159,6 +159,7 @@ label.fld > span{display:block;font-size:12.5px;color:var(--text-3);margin-botto
 .planbar{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);
   padding:7px 11px;margin-bottom:10px;background:var(--surface-2);border-radius:10px}
 .planbar .ago{opacity:.65}
+.maplap{font-size:11px;font-weight:700;color:var(--text-3);padding:7px 12px 0}
 .planbar .rp{margin-left:auto;flex:none;border:1px solid var(--border);background:var(--surface);
   color:var(--text-2);border-radius:8px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer}
 #scope-bar:empty{display:none}
@@ -428,7 +429,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-17-a';
+const APP_VER = '2026-09-18-c';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -452,7 +453,7 @@ function blank(){
            /* 지시상품내역이 1.5층 상품을 1F 로 찍어주므로, 번호로 구분한다 */
            fno:{'1.5F':['072','073']},
            /* 픽업은 다른 직원이 맡으므로 기본은 퀵만 본다 */
-           ui:{floor:'1F', date:today(), pf:[], po:[], pk:'Q'} };
+           ui:{floor:'1F', date:today(), pf:[], po:[], pk:'Q', plap:'mix'} };
 }
 /* ---- 날짜 ---- */
 const DOW = ['일','월','화','수','목','금','토'];
@@ -984,6 +985,11 @@ function poSet(){
 }
 function scopeOn(){ return pfSet().length > 0 || poSet().length > 0 || pkSet() !== 'all'; }
 
+function lapMode(){ return S.ui.plap === 'pfirst' ? 'pfirst' : 'mix'; }
+/* 이 줄이 어느 바퀴에 속하는가.
+   섞기 모드에서는 바퀴가 하나뿐이므로 모두 'Q' 로 본다.
+   계획을 만들 때와 따라갈 때가 같은 기준을 써야 자리가 어긋나지 않는다. */
+function lapOf(x){ return lapMode() === 'mix' ? 'Q' : lineKind(x); }
 function pkSet(){ return S.ui.pk === 'P' || S.ui.pk === 'all' ? S.ui.pk : 'Q'; }
 function pkLabel(){ return {Q:'퀵만', P:'픽업만', all:'퀵+픽업'}[pkSet()]; }
 
@@ -1123,7 +1129,7 @@ function planSig(){
   const keys = scopedAll().map(x=> x.o.id + '#' + x.i).sort().join(',');
   let h = 0;
   for(let i=0;i<keys.length;i++){ h = (h*31 + keys.charCodeAt(i)) | 0; }
-  return [curDate(), sess, pkSet(), (pfSet()).join('|'), (poSet()).join('|'),
+  return [curDate(), sess, pkSet(), lapMode(), (pfSet()).join('|'), (poSet()).join('|'),
           bothOn()?'B':'O', scopedAll().length, h].join('~');
 }
 
@@ -1133,7 +1139,7 @@ function routeFromPlan(plan){
   const byKey = new Map();
   rem.forEach(x=>{
     const c = locOf(x.ln.c);
-    const k = (c ? c.f+'|'+c.ut+'|'+c.uno : '?'+x.ln.c) + '#' + lineKind(x);
+    const k = (c ? c.f+'|'+c.ut+'|'+c.uno : '?'+x.ln.c) + '#' + lapOf(x);
     if(!byKey.has(k)) byKey.set(k, []);
     byKey.get(k).push(x);
   });
@@ -1153,10 +1159,10 @@ function routeFromPlan(plan){
   byKey.forEach((items,k)=>{
     const c = locOf(items[0].ln.c);
     items.sort((a,b)=> (S.cat[a.ln.c].ti||0) - (S.cat[b.ln.c].ti||0));
-    if(!c){ route.push({key:k, f:'?', ut:'', uno:'', unit:null, units:[], items, lap:lineKind(items[0]), unknown:true}); return; }
+    if(!c){ route.push({key:k, f:'?', ut:'', uno:'', unit:null, units:[], items, lap:lapOf(items[0]), unknown:true}); return; }
     const us = unitsAt(c.f,c.ut,c.uno);
     route.push({key:c.f+'|'+c.ut+'|'+c.uno, f:c.f, ut:c.ut, uno:c.uno,
-                units:us, unit:us[0]||null, items, lap:lineKind(items[0])});
+                units:us, unit:us[0]||null, items, lap:lapOf(items[0])});
   });
   const split = route.filter(s=>s.lap==='P').length;
   const floors = route.filter(s=>!s.unknown).map(s=>s.f).filter((f,i,a)=>f!==a[i-1]);
@@ -1192,6 +1198,15 @@ function computeRoute(){
   const Q = rem.filter(x=> lineKind(x)!=='P');
 
   const pt = curPoint();
+
+  /* 픽업을 따로 한 바퀴 돌면 손님 주문이 먼저 끝나지만, 픽업이 많아지면
+     같은 층을 두 번 밟게 되어 크게 돌아간다. 섞어서 한 바퀴가 기본이다. */
+  if(lapMode() === 'mix'){
+    const one = routeFor(rem, S.cur.f, pt);
+    one.route.forEach(s=> s.lap = 'Q');
+    return { route: one.route, floors: one.floors, noLoc: one.noLoc, pickLeft: 0, split: 0 };
+  }
+
   const a = routeFor(P, S.cur.f, pt);
   // 픽업 바퀴를 돌았다면 그 끝에서, 아니면 지금 서 있는 자리에서 퀵을 시작한다
   const qFrom = a.route.length ? a.endF : S.cur.f;
@@ -1326,7 +1341,7 @@ let HOLD = null;
 function holdStop(hold){
   if(!hold) return null;
   const items = scopedAll().filter(x=>{
-    if(lineKind(x) !== hold.lap) return false;
+    if(lapOf(x) !== hold.lap) return false;
     const c = locOf(x.ln.c);
     return c && (c.f+'|'+c.ut+'|'+c.uno) === hold.k;
   });
@@ -1506,7 +1521,9 @@ function renderPick(){
     }).join('') + '</div>';
   }
   if(!st.unknown && st.unit){
-    h += '<div class="plancard"><svg class="plan" id="rmap" style="height:210px"></svg></div>';
+    h += '<div class="plancard">'
+      + (RT.split ? '<div class="maplap">' + (st.lap==='P' ? '픽업 바퀴만 표시' : '퀵 바퀴만 표시') + '</div>' : '')
+      + '<svg class="plan" id="rmap" style="height:210px"></svg></div>';
   }
   box.innerHTML = h;
 
@@ -1538,7 +1555,9 @@ function renderPick(){
 }
 function drawRoute(svg, cur){
   const f = cur.f;
-  const same = RT.route.filter(s=>s.f===f && s.unit);
+  /* 지금 도는 바퀴만 그린다.
+     픽업과 퀵은 서로 이어진 길이 아니라, 한 지도에 같이 그리면 지그재그로 보인다. */
+  const same = RT.route.filter(s=>s.f===f && s.unit && s.lap === cur.lap);
   const pts = same.map(s=>ctr(s.unit));
   const box = fitBox(f, aspectOf('#rmap'));
   svg.setAttribute('viewBox', box.join(' '));
@@ -1595,6 +1614,17 @@ function openScope(){
         }).join('')
       + '</div>';
 
+    if(pkSet() === 'all'){
+      const pn = allLines().filter(x=>!x.ln.d && lineKind(x)==='P').length;
+      h += '<h3 style="margin:16px 0 0">픽업 순서</h3>'
+        + '<div class="muted" style="margin-top:2px">지금 픽업 ' + pn + '줄</div>'
+        + '<div class="scopegrid">'
+        + [['mix','섞어서 한 바퀴'],['pfirst','픽업 먼저 한 바퀴']].map(([v,t])=>
+            '<button class="c' + (lapMode()===v?' on':'') + '" data-pl="' + v + '">' + t + '</button>').join('')
+        + '</div>'
+        + '<div class="muted" style="margin-top:4px">픽업이 많으면 따로 돌 때 같은 층을 두 번 밟습니다</div>';
+    }
+
     h += '<h3 style="margin:16px 0 0">시간대</h3>'
       + '<div class="muted" style="margin-top:2px">'
       + '오전 것이 안 끝난 채 오후가 시작됐을 때 함께 돌 수 있습니다</div>'
@@ -1644,8 +1674,10 @@ function openScope(){
     sheet(h);
     $$('#sheet-body .scopegrid .c').forEach(el=>{
       el.onclick = ()=>{
-        if(el.dataset.pk !== undefined){
-          S.ui.pk = el.dataset.pk;
+        if(el.dataset.pl !== undefined){
+          S.ui.plap = el.dataset.pl; S.plan = null;
+        } else if(el.dataset.pk !== undefined){
+          S.ui.pk = el.dataset.pk; S.plan = null;
         } else if(el.dataset.ps !== undefined){
           S.ui.ps = el.dataset.ps;
         } else if(el.dataset.f !== undefined){
