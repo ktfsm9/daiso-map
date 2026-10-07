@@ -432,7 +432,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-09-18-f';
+const APP_VER = '2026-10-08-a';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -2440,7 +2440,7 @@ function openCat(code, after){
     const u = us.find(x=>x.no===no);
     const w = $('#k-warn');
     if(!v) w.innerHTML = us.length ? (f+' '+t+': '+us.map(x=>x.no).join(', ')) : ('평면도에 '+f+' '+t+'가 없습니다');
-    else if(u) w.innerHTML = '<span style="color:var(--ok)">평면도에 있는 매대 · 끝번호 -01~-'+pad2(u.tiers||1)+'</span>';
+    else if(u) w.innerHTML = '<span style="color:var(--ok)">평면도에 있는 매대 · 끝번호는 진열대에 붙은 번호 그대로 (예: -07)</span>';
     else w.innerHTML = '<span style="color:var(--no)">평면도에 없는 번호입니다. 저장은 되지만 동선 순서가 대략적입니다.</span>';
   };
   ['#k-f','#k-ut'].forEach(s=>$(s).onchange=refresh);
@@ -2691,8 +2691,16 @@ function openUnitInfo(id){
   const u=S.units.find(x=>x.id===id); if(!u) return;
   const here = Object.keys(S.cat).filter(k=>{ const c=S.cat[k]; return c.f===u.f&&c.ut===u.t&&c.uno===u.no; });
   const byTier={}; here.forEach(k=>{ const t=S.cat[k].ti||0; (byTier[t]=byTier[t]||[]).push(k); });
+  /* 끝번호(-02 등)는 "아래에서 몇 번째 칸" 이 아니라 진열대마다 붙어 있는 고유 번호다.
+     그래서 번호가 유닛의 칸 수보다 클 수 있다(예: 곤도라 033 의 -07).
+     등록된 번호 중 가장 큰 값까지 전부 보여주고, 작은 번호부터 차례로 올라간다. */
+  const maxTi = here.reduce((m,k)=> Math.max(m, S.cat[k].ti||0), (u.tiers||1));
   let h='';
-  for(let i=(u.tiers||1);i>=1;i--){
+  if(byTier[0] && byTier[0].length){
+    h += '<div class="itm"><div class="txt"><div class="nm">끝번호 없음</div><div class="mt">'
+       + byTier[0].map(k=>esc(S.cat[k].n)).join('<br>')+'</div></div></div>';
+  }
+  for(let i=1;i<=maxTi;i++){
     const arr=byTier[i]||[];
     h += '<div class="itm"><div class="txt"><div class="nm">-'+pad2(i)+'</div><div class="mt">'
        + (arr.length?arr.map(k=>esc(S.cat[k].n)).join('<br>'):'—')+'</div></div></div>';
