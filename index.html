@@ -204,6 +204,18 @@ svg.plan#svg{height:52vh;min-height:300px;max-height:620px}
 .stepper button{width:42px;height:44px;border:none;background:var(--surface);font-size:19px;color:var(--text-2);cursor:pointer;font-family:inherit;flex:none}
 .stepper button:active{background:var(--surface-2)}
 .stepper .v{flex:1;text-align:center;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+/* 끝번호 목록 */
+.tnlist{display:flex;flex-direction:column;gap:6px}
+.tnrow{display:flex;align-items:center;gap:6px;border:1px solid var(--border-strong);border-radius:11px;background:var(--surface);padding:5px 8px 5px 10px}
+.tnix{width:20px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums;flex:none}
+.tnno{flex:1;font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.3px}
+.tnb{width:40px;height:38px;border:none;background:var(--surface-2);border-radius:9px;font-size:16px;color:var(--text-2);cursor:pointer;font-family:inherit;flex:none}
+.tnb:active{filter:brightness(.94)}
+.tnb[disabled]{opacity:.3}
+.tnb.rm{color:var(--no)}
+.tnadd{display:flex;gap:7px;margin-top:9px}
+.tnadd input{width:84px;flex:none;height:40px;border:1px solid var(--border-strong);border-radius:11px;background:var(--surface);padding:0 12px;font-size:16px;font-family:inherit;color:var(--text);text-align:center;font-variant-numeric:tabular-nums}
+.tnadd .btn{flex:1;margin:0}
 .pad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-width:180px;margin:0 auto}
 .pad button{height:40px;border:1px solid var(--border-strong);background:var(--surface);border-radius:9px;font-size:15px;color:var(--text-2);cursor:pointer;font-family:inherit}
 .pad .sp{visibility:hidden}
@@ -432,7 +444,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-10-08-a';
+const APP_VER = '2026-10-08-b';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -617,6 +629,64 @@ function ctr(u){ return [(u.x+u.w/2)*CELL, (u.y+u.h/2)*CELL]; }
    멀리 돌아가는 순서가 "더 짧다"고 잘못 계산된다. */
 function dist(a,b){ return Math.abs(a[0]-b[0]) + Math.abs(a[1]-b[1]); }
 function locOf(code){ const c = S.cat[code]; return c && c.uno ? c : null; }
+
+/* ===== 끝번호 =====
+   'B1-벽면-024-02' 의 -02 는 아래에서 몇 번째 칸이 아니라
+   진열대마다 붙어 있는 고유 번호다. 그래서 번호가 칸 수보다 클 수 있고,
+   번호 순서가 곧 진열대에 붙어 있는 순서다.
+   u.tn = 유닛의 긴 축을 따라 실제로 붙어 있는 순서대로 적은 끝번호 배열.
+   비어 있으면 예전처럼 1..tiers 로 본다. */
+function tnList(u){
+  if(u && u.tn && u.tn.length) return u.tn;
+  const n = (u && u.tiers) || 1, a = [];
+  for(let i=1;i<=n;i++) a.push(i);
+  return a;
+}
+/* 끝번호 하나의 실제 좌표. 유닛을 긴 축으로 n등분해서 i번째 칸 가운데를 준다. */
+function tnPt(u, ti){
+  if(!u) return null;
+  const list = tnList(u);
+  const i = list.indexOf(ti|0);
+  if(i < 0) return ctr(u);
+  const f = (i + 0.5) / list.length;
+  const vert = u.h >= u.w;
+  const x = vert ? (u.x + u.w/2) : (u.x + f*u.w);
+  const y = vert ? (u.y + f*u.h) : (u.y + u.h/2);
+  return [x*CELL, y*CELL];
+}
+/* 이 자리에서 실제로 집어야 할 끝번호들의 한가운데.
+   유닛 가운데 대신 이걸 쓰면 긴 곤도라의 어느 쪽 끝인지까지 반영된다. */
+function stopPt(st){
+  if(!st || !st.unit) return null;
+  const ps = (st.items||[]).map(x=> tnPt(st.unit, (S.cat[x.ln.c]||{}).ti||0)).filter(Boolean);
+  if(!ps.length) return ctr(st.unit);
+  return [ps.reduce((a,p)=>a+p[0],0)/ps.length, ps.reduce((a,p)=>a+p[1],0)/ps.length];
+}
+/* 자리마다 "들어온 쪽" 에서 가까운 끝번호부터 집도록 줄 순서를 잡고,
+   그 자리를 빠져나온 지점을 다음 자리까지의 기준으로 넘긴다.
+   진열대 끝까지 갔다가 되돌아 나오는 헛걸음이 사라진다. */
+function faceStops(route, startPt){
+  let prev = startPt || null, prevF = null, first = true;
+  (route||[]).forEach(st=>{
+    if(st.unknown || !st.unit || !st.items || !st.items.length) return;
+    if(st.f !== prevF){
+      if(!(first && startPt)){
+        const stair = S.units.find(u=>u.f===st.f && u.t==='계단');
+        prev = stair ? ctr(stair) : null;
+      }
+      prevF = st.f;
+    }
+    first = false;
+    const ps = st.items.map(x=>({ x, p: tnPt(st.unit, (S.cat[x.ln.c]||{}).ti||0) || ctr(st.unit) }));
+    if(prev) ps.sort((a,b)=> dist(a.p,prev) - dist(b.p,prev));
+    else ps.sort((a,b)=> ((S.cat[a.x.ln.c]||{}).ti||0) - ((S.cat[b.x.ln.c]||{}).ti||0));
+    st.items = ps.map(e=>e.x);
+    st.inPt  = ps[0].p;
+    st.outPt = ps[ps.length-1].p;
+    prev = st.outPt;
+  });
+  return route;
+}
 /* ===== 상품 사진 =====
    다이소몰의 상품 이미지를 품번으로 가져온다.
    파일명에 품번이 들어 있어 "정확히 그 상품"인지 확인할 수 있다.
@@ -1115,13 +1185,18 @@ function routeFor(rem, from, fromPt){
     const start = (fi===0 && fromPt) ? fromPt
                 : (stair ? ctr(stair) : (entry || (list[0].unit ? ctr(list[0].unit) : [0,0])));
     // 같은 번호가 여러 조각이면 들어오는 쪽에서 가까운 조각을 쓴다 (꺾인 벽면 등)
-    list.forEach(st=>{ if(st.units && st.units.length > 1) st.unit = nearestUnit(st.units, start); });
+    // rp = 이 자리에서 실제로 집어야 할 끝번호들의 한가운데. 유닛 가운데보다 정확하다.
+    list.forEach(st=>{
+      if(st.units && st.units.length > 1) st.unit = nearestUnit(st.units, start);
+      st.rp = stopPt(st);
+    });
     const back = fi < order.length-1 && stair ? ctr(stair) : null;
     const seq = orderStops(list, start, back);
     seq.forEach(s => route.push(s));
     entry = stair ? ctr(stair) : (seq.length && seq[seq.length-1].unit ? ctr(seq[seq.length-1].unit) : start);
   });
   noLoc.forEach(x=> route.push({ key:'?'+x.ln.c, f:'?', ut:'', uno:'', unit:null, items:[x], unknown:true }));
+  faceStops(route, fromPt);
   return { route, floors:order, noLoc, endF: order.length ? order[order.length-1] : from };
 }
 
@@ -1168,6 +1243,7 @@ function routeFromPlan(plan){
     route.push({key:c.f+'|'+c.ut+'|'+c.uno, f:c.f, ut:c.ut, uno:c.uno,
                 units:us, unit:us[0]||null, items, lap:lapOf(items[0])});
   });
+  faceStops(route, curPoint());
   const split = route.filter(s=>s.lap==='P').length;
   const floors = route.filter(s=>!s.unknown).map(s=>s.f).filter((f,i,a)=>f!==a[i-1]);
   return { route, floors, noLoc: route.filter(s=>s.unknown), split, planned:true };
@@ -1233,7 +1309,7 @@ function orderStops(list, start, back){
     .sort((a,b)=>a.uno.localeCompare(b.uno,undefined,{numeric:true}));
   if(known.length < 2) return known.concat(unknown);
 
-  const P = known.map(s=>ctr(s.unit));
+  const P = known.map(s=> s.rp || ctr(s.unit));
   const n = known.length;
 
   // 그 층의 한가운데 — 시계방향을 재는 기준점
@@ -2729,21 +2805,59 @@ function openUnitEdit(id,isNew){
     + '<div class="row"><label class="fld"><span>가로 칸</span><div class="stepper"><button data-a="w-">&minus;</button><div class="v" id="e-w">'+u.w+'</div><button data-a="w+">+</button></div></label>'
     + '<label class="fld"><span>세로 칸</span><div class="stepper"><button data-a="h-">&minus;</button><div class="v" id="e-h">'+u.h+'</div><button data-a="h+">+</button></div></label></div>'
     + '<button class="btn gh sm" data-a="rot" style="margin-bottom:12px">↻ 눕히기 · 세우기</button>'
-    + (isStair||u.t==='계산대'?'':'<label class="fld"><span>단 수 — 아래부터 -01</span><div class="stepper"><button data-a="t-">&minus;</button><div class="v" id="e-t">'+(u.tiers||1)+'</div><button data-a="t+">+</button></div></label>')
+    + (isStair||u.t==='계산대'?'':
+        '<div class="fld"><span>끝번호 — 진열대에 붙은 번호를 <b id="e-tnend">앞쪽</b>부터 차례로<br>'
+        + '<span style="color:var(--text-2)">B1-'+esc(u.t)+'-'+esc(u.no)+'-<b style="color:var(--accent)">07</b> 에서 07</span></span>'
+        + '<div class="tnlist" id="e-tn"></div>'
+        + '<div class="tnadd"><input id="e-tni" inputmode="numeric" maxlength="3" placeholder="07">'
+        + '<button class="btn gh sm" data-a="tnadd">번호 추가</button></div>'
+        + '<div class="tnadd" style="margin-top:7px"><button class="btn gh sm" data-a="tnrev">↕ 순서 뒤집기</button>'
+        + '<button class="btn gh sm" data-a="tnseq">1부터 차례로</button></div></div>')
     + '<div style="margin-top:14px"><button class="btn pri" id="e-ok">'+(isNew?'놓기 완료':'저장')+'</button>'
     + '<button class="btn dg" id="e-del" style="margin-top:9px">이 유닛 삭제</button></div>');
   $('#sheet-body').querySelectorAll('[data-no]').forEach(b=> b.onclick = ()=>{
     $('#e-no').value = b.dataset.no;
   });
-  const upd=()=>{ $('#e-w').textContent=u.w; $('#e-h').textContent=u.h; if($('#e-t'))$('#e-t').textContent=u.tiers||1; paint(); };
+  /* 끝번호 목록. 적어 둔 차례가 곧 진열대에 붙어 있는 차례다.
+     세로로 긴 유닛은 위에서 아래로, 가로로 긴 유닛은 왼쪽에서 오른쪽으로 읽는다. */
+  const drawTn = ()=>{
+    const box = $('#e-tn'); if(!box) return;
+    const list = tnList(u), vert = u.h >= u.w;
+    const endEl = $('#e-tnend'); if(endEl) endEl.textContent = vert ? '위쪽' : '왼쪽';
+    box.innerHTML = list.length
+      ? list.map((t,i)=>
+          '<div class="tnrow"><span class="tnix">'+(i+1)+'</span><span class="tnno">-'+pad2(t)+'</span>'
+        + '<button class="tnb" data-tn="up" data-i="'+i+'"'+(i===0?' disabled':'')+'>↑</button>'
+        + '<button class="tnb" data-tn="dn" data-i="'+i+'"'+(i===list.length-1?' disabled':'')+'>↓</button>'
+        + '<button class="tnb rm" data-tn="rm" data-i="'+i+'">×</button></div>').join('')
+      : '<div class="muted">번호가 없습니다. 아래에서 추가하세요.</div>';
+    box.querySelectorAll('[data-tn]').forEach(b=> b.onclick=()=>{
+      const arr = tnList(u).slice(), i = +b.dataset.i, a = b.dataset.tn;
+      if(a==='up' && i>0){ const t=arr[i-1]; arr[i-1]=arr[i]; arr[i]=t; }
+      if(a==='dn' && i<arr.length-1){ const t=arr[i+1]; arr[i+1]=arr[i]; arr[i]=t; }
+      if(a==='rm') arr.splice(i,1);
+      u.tn = arr; u.tiers = Math.max(1, arr.length);
+      save(); drawTn(); paint();
+    });
+  };
+  const upd=()=>{ $('#e-w').textContent=u.w; $('#e-h').textContent=u.h; drawTn(); paint(); };
   $('#sheet-body').querySelectorAll('[data-a]').forEach(b=> b.onclick=()=>{
     const a=b.dataset.a;
     if(a==='w+') u.w=Math.min(COLS-u.x,u.w+1); if(a==='w-') u.w=Math.max(1,u.w-1);
     if(a==='h+') u.h=Math.min(ROWS-u.y,u.h+1); if(a==='h-') u.h=Math.max(1,u.h-1);
-    if(a==='t+') u.tiers=Math.min(20,(u.tiers||1)+1); if(a==='t-') u.tiers=Math.max(1,(u.tiers||1)-1);
     if(a==='rot'){ const t=u.w; u.w=Math.min(COLS-u.x,u.h); u.h=Math.min(ROWS-u.y,t); }
+    if(a==='tnadd'){
+      const v = parseInt((($('#e-tni')||{}).value||'').trim(),10);
+      if(isNaN(v) || v<1 || v>99){ toast('번호를 입력해 주세요'); return; }
+      const arr = tnList(u).slice();
+      if(arr.indexOf(v) >= 0){ toast('-'+pad2(v)+' 은 이미 있습니다'); return; }
+      arr.push(v); u.tn = arr; u.tiers = arr.length; $('#e-tni').value = '';
+    }
+    if(a==='tnrev') u.tn = tnList(u).slice().reverse();
+    if(a==='tnseq'){ const n = tnList(u).length || 5, arr=[]; for(let i=1;i<=n;i++) arr.push(i); u.tn=arr; u.tiers=n; }
     save(); upd();
   });
+  drawTn();
   $('#e-ok').onclick=()=>{
     if(!isStair){
       const v=($('#e-no').value||'').trim();
