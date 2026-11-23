@@ -444,7 +444,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-11-24-a';
+const APP_VER = '2026-11-24-b';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -568,6 +568,7 @@ function writeNow(){
   }
 }
 function save(){
+  TNMAX = null;            // 상품·평면도가 바뀌면 끝번호 최대값 캐시를 버린다
   clearTimeout(saveT);
   saveT = setTimeout(writeNow, 60);
 }
@@ -643,9 +644,29 @@ function unkFloor(code){
    번호 순서가 곧 진열대에 붙어 있는 순서다.
    u.tn = 유닛의 긴 축을 따라 실제로 붙어 있는 순서대로 적은 끝번호 배열.
    비어 있으면 예전처럼 1..tiers 로 본다. */
+/* 유닛마다 "등록된 상품 중 가장 큰 끝번호".
+   칸 수(tiers)는 선반 단 수라서 실제 번호(-07, -13 …)보다 작을 때가 많다.
+   이걸 안 보면 번호가 칸 수를 넘는 상품은 좌표가 안 잡혀 유닛 한가운데로 뭉개진다. */
+/* var 인 이유: save() 가 이 줄보다 위에서 선언되어 있다.
+   let 이면 초기화 전에 save() 가 불릴 때 TDZ 오류가 난다. */
+var TNMAX = null;
+function tnMaxMap(){
+  if(TNMAX) return TNMAX;
+  TNMAX = {};
+  Object.keys(S.cat).forEach(k=>{
+    const c = S.cat[k];
+    if(!c || !c.uno || !c.ti) return;
+    const key = c.f+'|'+c.ut+'|'+c.uno;
+    if(!TNMAX[key] || TNMAX[key] < c.ti) TNMAX[key] = c.ti;
+  });
+  return TNMAX;
+}
 function tnList(u){
   if(u && u.tn && u.tn.length) return u.tn;
-  const n = (u && u.tiers) || 1, a = [];
+  // 직접 넣은 순서가 없으면 1 ~ (칸 수와 실제 최대 번호 중 큰 쪽) 으로 본다
+  const key = u ? u.f+'|'+u.t+'|'+u.no : '';
+  const n = Math.max((u && u.tiers) || 1, tnMaxMap()[key] || 0);
+  const a = [];
   for(let i=1;i<=n;i++) a.push(i);
   return a;
 }
