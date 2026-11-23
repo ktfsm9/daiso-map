@@ -444,7 +444,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-11-24-b';
+const APP_VER = '2026-11-24-c';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -1230,12 +1230,23 @@ function routeFor(rem, from, fromPt){
       st.rp = stopPt(st);
     });
     const back = fi < order.length-1 && stair ? ctr(stair) : null;
-    const seq = list.length ? orderStops(list, start, back) : [];
-    seq.forEach(s => route.push(s));
-    // 이 층의 위치 미지정은 이 층을 다 돈 뒤, 층을 옮기기 전에 한 묶음으로
+    /* 창고는 물건 하나 찾는 데 가장 오래 걸린다.
+       매장에 나와 있는 자리를 먼저 다 돌고, 그 층의 맨 끝에서 창고에 들어간다.
+       그래야 창고에서 헤매는 동안 남은 자리가 밀리지 않는다. */
+    const wh   = list.filter(s=> s.ut === '창고');
+    const rest = list.filter(s=> s.ut !== '창고');
+    const ptOf = s => s ? (s.rp || (s.unit ? ctr(s.unit) : null)) : null;
+    // 매장 자리는 창고 쪽으로 빠져나가게 끝낸다 (창고가 없으면 계단 쪽으로)
+    const seqA = rest.length ? orderStops(rest, start, (wh.length ? ptOf(wh[0]) : null) || back) : [];
+    const aEnd = (seqA.length ? ptOf(seqA[seqA.length-1]) : null) || start;
+    const seqB = wh.length ? orderStops(wh, aEnd, back) : [];
+    seqA.forEach(s => route.push(s));
+    // 이 층의 위치 미지정은 매장 자리를 다 돈 뒤에
     const uk = unkByF.get(f);
     if(uk && uk.length) route.push({ key:'?F|'+f, f, ut:'', uno:'', unit:null, units:[], items:uk.slice(), unknown:true });
-    entry = stair ? ctr(stair) : (seq.length && seq[seq.length-1].unit ? ctr(seq[seq.length-1].unit) : start);
+    seqB.forEach(s => route.push(s));
+    const last = seqB.length ? seqB[seqB.length-1] : (seqA.length ? seqA[seqA.length-1] : null);
+    entry = stair ? ctr(stair) : (ptOf(last) || start);
   });
   // 층조차 모르는 줄만 맨 뒤에 남는다
   if(unkNoF.length) route.push({ key:'?F|', f:'?', ut:'', uno:'', unit:null, units:[], items:unkNoF, unknown:true });
