@@ -444,7 +444,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-10-08-b';
+const APP_VER = '2026-11-24-a';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -629,6 +629,13 @@ function ctr(u){ return [(u.x+u.w/2)*CELL, (u.y+u.h/2)*CELL]; }
    멀리 돌아가는 순서가 "더 짧다"고 잘못 계산된다. */
 function dist(a,b){ return Math.abs(a[0]-b[0]) + Math.abs(a[1]-b[1]); }
 function locOf(code){ const c = S.cat[code]; return c && c.uno ? c : null; }
+/* 매대 번호는 모르지만 층은 아는 상품. 층까지 모르면 ''.
+   이런 줄을 전부 맨 뒤로 몰면 다 끝낸 층을 다시 올라가야 해서 동선이 꼬인다. */
+function unkFloor(code){
+  const c = S.cat[code];
+  const f = c && c.f;
+  return (f && S.floors.indexOf(f) >= 0) ? f : '';
+}
 
 /* ===== 끝번호 =====
    'B1-벽면-024-02' 의 -02 는 아래에서 몇 번째 칸이 아니라
@@ -1170,8 +1177,19 @@ function routeFor(rem, from, fromPt){
   const stops = Array.from(stopMap.values());
   stops.forEach(s => s.items.sort((a,b)=> (S.cat[a.ln.c].ti||0) - (S.cat[b.ln.c].ti||0)));
 
+  // 위치 미지정도 층별로 묶어, 그 층을 도는 김에 같이 처리한다.
+  const unkByF = new Map(), unkNoF = [];
+  noLoc.forEach(x=>{
+    const f = unkFloor(x.ln.c);
+    if(!f){ unkNoF.push(x); return; }
+    if(!unkByF.has(f)) unkByF.set(f, []);
+    unkByF.get(f).push(x);
+  });
+
   const byF = new Map();
   stops.forEach(s=>{ if(!byF.has(s.f)) byF.set(s.f, []); byF.get(s.f).push(s); });
+  // 위치 미지정만 있는 층도 돌아야 한다
+  unkByF.forEach((v,f)=>{ if(!byF.has(f)) byF.set(f, []); });
 
   const order = floorOrder(Array.from(byF.keys()), from);
   const route = [];
@@ -1183,7 +1201,7 @@ function routeFor(rem, from, fromPt){
     // (앞 층의 계단 좌표를 그대로 쓰면 엉뚱한 데서 시작한다)
     // 첫 층은 "지금 서 있는 자리" 에서 출발한다. 그 다음 층부터는 그 층 계단에서.
     const start = (fi===0 && fromPt) ? fromPt
-                : (stair ? ctr(stair) : (entry || (list[0].unit ? ctr(list[0].unit) : [0,0])));
+                : (stair ? ctr(stair) : (entry || ((list[0] && list[0].unit) ? ctr(list[0].unit) : [0,0])));
     // 같은 번호가 여러 조각이면 들어오는 쪽에서 가까운 조각을 쓴다 (꺾인 벽면 등)
     // rp = 이 자리에서 실제로 집어야 할 끝번호들의 한가운데. 유닛 가운데보다 정확하다.
     list.forEach(st=>{
@@ -1191,11 +1209,15 @@ function routeFor(rem, from, fromPt){
       st.rp = stopPt(st);
     });
     const back = fi < order.length-1 && stair ? ctr(stair) : null;
-    const seq = orderStops(list, start, back);
+    const seq = list.length ? orderStops(list, start, back) : [];
     seq.forEach(s => route.push(s));
+    // 이 층의 위치 미지정은 이 층을 다 돈 뒤, 층을 옮기기 전에 한 묶음으로
+    const uk = unkByF.get(f);
+    if(uk && uk.length) route.push({ key:'?F|'+f, f, ut:'', uno:'', unit:null, units:[], items:uk.slice(), unknown:true });
     entry = stair ? ctr(stair) : (seq.length && seq[seq.length-1].unit ? ctr(seq[seq.length-1].unit) : start);
   });
-  noLoc.forEach(x=> route.push({ key:'?'+x.ln.c, f:'?', ut:'', uno:'', unit:null, items:[x], unknown:true }));
+  // 층조차 모르는 줄만 맨 뒤에 남는다
+  if(unkNoF.length) route.push({ key:'?F|', f:'?', ut:'', uno:'', unit:null, units:[], items:unkNoF, unknown:true });
   faceStops(route, fromPt);
   return { route, floors:order, noLoc, endF: order.length ? order[order.length-1] : from };
 }
@@ -1218,7 +1240,7 @@ function routeFromPlan(plan){
   const byKey = new Map();
   rem.forEach(x=>{
     const c = locOf(x.ln.c);
-    const k = (c ? c.f+'|'+c.ut+'|'+c.uno : '?'+x.ln.c) + '#' + lapOf(x);
+    const k = (c ? c.f+'|'+c.ut+'|'+c.uno : '?F|'+unkFloor(x.ln.c)) + '#' + lapOf(x);
     if(!byKey.has(k)) byKey.set(k, []);
     byKey.get(k).push(x);
   });
@@ -1229,7 +1251,7 @@ function routeFromPlan(plan){
     byKey.delete(p.k);
     const c = locOf(items[0].ln.c);
     items.sort((a,b)=> (S.cat[a.ln.c].ti||0) - (S.cat[b.ln.c].ti||0));
-    if(!c){ route.push({key:p.k, f:'?', ut:'', uno:'', unit:null, units:[], items, lap:p.lap, unknown:true}); return; }
+    if(!c){ route.push({key:p.k, f:unkFloor(items[0].ln.c)||'?', ut:'', uno:'', unit:null, units:[], items, lap:p.lap, unknown:true}); return; }
     const us = unitsAt(c.f,c.ut,c.uno);
     route.push({key:c.f+'|'+c.ut+'|'+c.uno, f:c.f, ut:c.ut, uno:c.uno,
                 units:us, unit:us[0]||null, items, lap:p.lap});
@@ -1238,14 +1260,14 @@ function routeFromPlan(plan){
   byKey.forEach((items,k)=>{
     const c = locOf(items[0].ln.c);
     items.sort((a,b)=> (S.cat[a.ln.c].ti||0) - (S.cat[b.ln.c].ti||0));
-    if(!c){ route.push({key:k, f:'?', ut:'', uno:'', unit:null, units:[], items, lap:lapOf(items[0]), unknown:true}); return; }
+    if(!c){ route.push({key:k, f:unkFloor(items[0].ln.c)||'?', ut:'', uno:'', unit:null, units:[], items, lap:lapOf(items[0]), unknown:true}); return; }
     const us = unitsAt(c.f,c.ut,c.uno);
     route.push({key:c.f+'|'+c.ut+'|'+c.uno, f:c.f, ut:c.ut, uno:c.uno,
                 units:us, unit:us[0]||null, items, lap:lapOf(items[0])});
   });
   faceStops(route, curPoint());
   const split = route.filter(s=>s.lap==='P').length;
-  const floors = route.filter(s=>!s.unknown).map(s=>s.f).filter((f,i,a)=>f!==a[i-1]);
+  const floors = route.filter(s=>s.f && s.f!=='?').map(s=>s.f).filter((f,i,a)=>f!==a[i-1]);
   return { route, floors, noLoc: route.filter(s=>s.unknown), split, planned:true };
 }
 
@@ -1488,7 +1510,9 @@ function renderPick(){
   // 지금 서 있는 층 — 여기서부터 층 순서가 정해진다
   const doneAny = all.some(x=>x.ln.d);
   const leftBy = {};
-  rem.forEach(x=>{ const c = locOf(x.ln.c); if(c) leftBy[c.f] = (leftBy[c.f]||0) + 1; });
+  // 위치 미지정이라도 층을 알면 그 층 몫으로 센다 (안 그러면 전부 '없음'으로 보인다)
+  rem.forEach(x=>{ const c = locOf(x.ln.c); const f = c ? c.f : unkFloor(x.ln.c);
+                   if(f) leftBy[f] = (leftBy[f]||0) + 1; });
   const order = RT.floors.filter((f,i,a)=>a.indexOf(f)===i);
   h += '<div class="startbar' + (doneAny ? '' : ' big') + '">'
      + '<div class="t">' + (doneAny
@@ -1521,8 +1545,10 @@ function renderPick(){
   h += '<div class="step">'+(held?'지금 이 자리':'다음 위치')+' · 남은 매대 '+stopN+'곳'
      + '</div>';
   if(st.unknown){
-    h += '<div class="big"><em>위치 미지정</em></div>';
-    h += '<div class="walk">앱에 위치가 없는 상품입니다. 상품 탭에서 위치를 채워주세요.</div>';
+    const uf = st.f && st.f!=='?' ? st.f : '';
+    h += '<div class="big">'+(uf ? esc(uf)+' <em>·</em> ' : '')+'<em>위치 미지정</em></div>';
+    h += '<div class="walk">'+(uf ? uf+' 안에 있지만 매대 번호를 모르는 상품입니다. ' : '앱에 위치가 없는 상품입니다. ')
+       + '상품 탭에서 위치를 채워주세요.</div>';
   } else {
     h += '<div class="big">'+esc(st.f)+' <em>·</em> '+esc(st.ut)+' '+esc(st.uno)+'</div>';
     if(!st.unit) h += '<div class="walk">평면도에 이 매대가 없어 순서가 대략적입니다</div>';
