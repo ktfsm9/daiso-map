@@ -156,6 +156,16 @@ label.fld > span{display:block;font-size:12.5px;color:var(--text-3);margin-botto
 .startbar .f.zero{opacity:.38}
 .startbar.big{border-color:var(--accent);background:var(--accent-soft)}
 .startbar.big .t{font-size:15px;font-weight:700;color:var(--accent-strong)}
+/* 위치 미지정 — 층별로 따로 띄운다. 동선 중간에 묻히면 끝까지 못 보고 지나친다. */
+.unkcard{background:#FFF6E9;border:1.5px solid #E7CFA6;border-radius:12px;
+  padding:11px 13px;margin-bottom:10px}
+.unkcard .t{font-size:13px;font-weight:700;color:#8A5A12;margin-bottom:8px}
+.unkcard .fs{display:flex;gap:7px;flex-wrap:wrap}
+.unkcard button{flex:1 1 0;min-width:68px;border:1.5px solid #E0C291;background:var(--surface);
+  border-radius:10px;padding:9px 4px;font-size:14px;font-weight:700;color:#8A5A12;
+  cursor:pointer;text-align:center;line-height:1.25;font-family:inherit}
+.unkcard button i{display:block;font-style:normal;font-size:11px;font-weight:600;opacity:.75;margin-top:1px}
+.unkcard button.on{border-color:#C98B2A;background:#F7E6CC}
 .planbar{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);
   padding:7px 11px;margin-bottom:10px;background:var(--surface-2);border-radius:10px}
 .planbar .ago{opacity:.65}
@@ -444,7 +454,7 @@ td.r{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 
 <script>
 /* ==================== 상수 ==================== */
-const APP_VER = '2026-11-24-c';
+const APP_VER = '2026-11-25-a';
 const KEY = 'daiso_pick_v1', OLDKEY = 'daiso_map_v1';
 /* 평면도는 손으로 그린 것이라 다시 만들기 가장 힘들다.
    본 저장소가 깨져도 살아남도록 따로 한 벌 더 둔다. */
@@ -1283,7 +1293,8 @@ function routeFromPlan(plan){
     byKey.delete(p.k);
     const c = locOf(items[0].ln.c);
     items.sort((a,b)=> (S.cat[a.ln.c].ti||0) - (S.cat[b.ln.c].ti||0));
-    if(!c){ route.push({key:p.k, f:unkFloor(items[0].ln.c)||'?', ut:'', uno:'', unit:null, units:[], items, lap:p.lap, unknown:true}); return; }
+    // key 는 바퀴표시(#Q)를 뗀 형태로 — 자리 붙잡기(HOLD)가 같은 모양을 쓴다
+    if(!c){ route.push({key:p.k.split('#')[0], f:unkFloor(items[0].ln.c)||'?', ut:'', uno:'', unit:null, units:[], items, lap:p.lap, unknown:true}); return; }
     const us = unitsAt(c.f,c.ut,c.uno);
     route.push({key:c.f+'|'+c.ut+'|'+c.uno, f:c.f, ut:c.ut, uno:c.uno,
                 units:us, unit:us[0]||null, items, lap:p.lap});
@@ -1292,7 +1303,7 @@ function routeFromPlan(plan){
   byKey.forEach((items,k)=>{
     const c = locOf(items[0].ln.c);
     items.sort((a,b)=> (S.cat[a.ln.c].ti||0) - (S.cat[b.ln.c].ti||0));
-    if(!c){ route.push({key:k, f:unkFloor(items[0].ln.c)||'?', ut:'', uno:'', unit:null, units:[], items, lap:lapOf(items[0]), unknown:true}); return; }
+    if(!c){ route.push({key:k.split('#')[0], f:unkFloor(items[0].ln.c)||'?', ut:'', uno:'', unit:null, units:[], items, lap:lapOf(items[0]), unknown:true}); return; }
     const us = unitsAt(c.f,c.ut,c.uno);
     route.push({key:c.f+'|'+c.ut+'|'+c.uno, f:c.f, ut:c.ut, uno:c.uno,
                 units:us, unit:us[0]||null, items, lap:lapOf(items[0])});
@@ -1450,6 +1461,18 @@ let HOLD = null;
    HOLD = {k:자리, lap:'P'|'Q'} — 같은 자리라도 픽업 바퀴와 퀵 바퀴를 섞지 않는다 */
 function holdStop(hold){
   if(!hold) return null;
+  // 위치 미지정 묶음 ('?F|B1' · 층도 모르면 '?F|')
+  if(hold.k.indexOf('?F|') === 0){
+    const f = hold.k.slice(3);
+    const items = scopedAll().filter(x=>{
+      if(lapOf(x) !== hold.lap) return false;
+      if(locOf(x.ln.c)) return false;
+      return (unkFloor(x.ln.c) || '?') === (f || '?');
+    });
+    if(!items.length) return null;
+    return { key: hold.k, f: f || '?', ut:'', uno:'', units:[], unit:null,
+             items, lap: hold.lap, unknown:true, held:true };
+  }
   const items = scopedAll().filter(x=>{
     if(lapOf(x) !== hold.lap) return false;
     const c = locOf(x.ln.c);
@@ -1561,6 +1584,33 @@ function renderPick(){
          + order.join(' → ') + '</div>')
      + '</div>';
 
+  /* 위치 미지정 — 층별로 따로 띄운다.
+     동선 안에서는 그 층 자리를 다 돈 뒤에야 나오는데, 줄이 많으면 한참 뒤라
+     있는 줄도 모르고 지나치기 쉽다. 눌러서 지금 바로 집을 수도 있게 한다. */
+  {
+    const unkBy = {};
+    rem.forEach(x=>{
+      if(locOf(x.ln.c)) return;
+      const uf = unkFloor(x.ln.c) || '?';
+      unkBy[uf] = (unkBy[uf]||0) + 1;
+    });
+    const ufs = Object.keys(unkBy).sort((a,b)=>{
+      const ia = S.floors.indexOf(a), ib = S.floors.indexOf(b);
+      return (ia<0?99:ia) - (ib<0?99:ib);
+    });
+    if(ufs.length){
+      const tot = ufs.reduce((a,f)=>a+unkBy[f], 0);
+      h += '<div class="unkcard"><div class="t">위치 미지정 · ' + tot + '줄 '
+         + '<span style="font-weight:600;opacity:.8">— 눌러서 지금 집기</span></div><div class="fs">'
+         + ufs.map(f=>{
+             const on = st && st.unknown && (st.f||'?') === f;
+             return '<button class="'+(on?'on':'')+'" data-uf="'+esc(f)+'">'
+                  + esc(f==='?' ? '층 모름' : f) + '<i>' + unkBy[f] + '줄</i></button>';
+           }).join('')
+         + '</div></div>';
+    }
+  }
+
   // 확정된 동선임을 알려준다
   {
     const done = all.filter(x=>x.ln.d).length;
@@ -1635,6 +1685,13 @@ function renderPick(){
     if(f === S.cur.f) return;
     S.cur.f = f; S.cur.u = null; HOLD = null; S.plan = null; save(); renderPick();
     toast(f + ' 에서 시작합니다');
+  });
+  // 위치 미지정 묶음으로 바로 이동 (다시 누르면 원래 동선으로 돌아간다)
+  $$('#pick-body [data-uf]').forEach(el=> el.onclick = ()=>{
+    const f = el.dataset.uf;
+    const k = '?F|' + (f==='?' ? '' : f);
+    HOLD = (HOLD && HOLD.k === k) ? null : { k, lap:'Q' };
+    renderPick();
   });
   bindImgTap('#pick-body');
   // 상품을 누르면 체크만 된다. 자리는 "이 자리 완료"를 눌러야 넘어간다.
